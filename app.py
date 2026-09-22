@@ -232,7 +232,8 @@ def _(
                         <!-- Bottom Positional Output Row -->
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;">
                             <div style="font-size:0.74rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-right:4px;">Starter Breakdown:</div>
-                            {''.join(_pos_pills)}\n                        </div>
+                            {''.join(_pos_pills)}
+                        </div>
                     </div>
                     """
                 )
@@ -251,7 +252,7 @@ def _(
                     }
                     return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
-                # Helper to build clean HTML roster table with perfectly aligned headers & rows
+                # Helper to build clean HTML roster table with true 1:1 circular headshots
                 def _render_roster_table(df_subset, title_label):
                     if df_subset.empty:
                         return mo.md(f"<em>No {title_label.lower()} found.</em>")
@@ -280,9 +281,9 @@ def _(
 
                         _row = f"""
                         <tr style='border-bottom: 1px solid #f1f5f9;'>
-                            <td style='padding:8px 10px; text-align:center; width:52px;'>{_slot_html}</td>
-                            <td style='padding:8px 4px 8px 10px; width:38px; text-align:center;'>
-                                <img src='{_r_player['headshot_url']}' style='width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block;' />
+                            <td style='padding:8px 8px; text-align:center; width:52px;'>{_slot_html}</td>
+                            <td style='padding:8px 4px 8px 8px; width:48px; min-width:48px; max-width:48px; text-align:center;'>
+                                <img src='{_r_player['headshot_url']}' style='width:36px; height:36px; min-width:36px; min-height:36px; max-width:36px; max-height:36px; aspect-ratio:1/1; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block; margin:0 auto; box-sizing:border-box;' />
                             </td>
                             <td style='padding:8px 12px 8px 6px; text-align:left;'>
                                 <div style='font-weight:700; font-size:0.86rem; color:#0f172a;'>{_r_player['player_name']}</div>
@@ -308,8 +309,8 @@ def _(
                                 <table style='width:100%; border-collapse:collapse; font-size:0.82rem;'>
                                     <thead>
                                         <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'>
-                                            <th style='padding:8px 10px; text-align:center; width:52px;'>Slot</th>
-                                            <th style='padding:8px 4px 8px 10px; width:38px;'></th>
+                                            <th style='padding:8px 8px; text-align:center; width:52px;'>Slot</th>
+                                            <th style='padding:8px 4px 8px 8px; width:48px; min-width:48px; max-width:48px;'></th>
                                             <th style='padding:8px 12px 8px 6px; text-align:left;'>Player</th>
                                             <th style='padding:8px 12px; text-align:center; width:75px;'>Pos Rank</th>
                                             <th style='padding:8px 12px; text-align:right; width:85px;'>Mean FPTS</th>
@@ -396,8 +397,8 @@ def _(
                 _row_html = f"""
                 <tr style='border-bottom: 1px solid #f1f5f9;'>
                     <td style='padding:10px 12px; text-align:center; width:52px;'>{_rank_html}</td>
-                    <td style='padding:10px 2px 10px 12px; width:16px; text-align:center;'>
-                        <div style='width:10px; height:10px; border-radius:50%; background:{_owner_col}; margin:0 auto;'></div>
+                    <td style='padding:10px 4px 10px 10px; width:24px; min-width:24px; max-width:24px; text-align:center;'>
+                        <div style='width:10px; height:10px; min-width:10px; min-height:10px; aspect-ratio:1/1; border-radius:50%; background:{_owner_col}; margin:0 auto;'></div>
                     </td>
                     <td style='padding:10px 14px 10px 4px; text-align:left;'>
                         <div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_t_name}</div>
@@ -440,7 +441,7 @@ def _(
                             <thead>
                                 <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;'>
                                     <th style='padding:10px 12px; text-align:center; width:52px;'>Rank</th>
-                                    <th style='padding:10px 2px 10px 12px; width:16px;'></th>
+                                    <th style='padding:10px 4px 10px 10px; width:24px; min-width:24px; max-width:24px;'></th>
                                     <th style='padding:10px 14px 10px 4px; text-align:left;'>Team / Manager</th>
                                     <th style='padding:10px 14px; text-align:center; width:110px;'>Record (Win %)</th>
                                     <th style='padding:10px 14px; text-align:right; width:100px;'>Points For (PF)</th>
