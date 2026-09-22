@@ -161,8 +161,8 @@ def _(
                 pos_data=_filtered_pos,
                 unique_teams=unique_teams,
                 owner_colors=owner_colors,
-                chart_width=860,
-                chart_height=520
+                chart_width=780,
+                chart_height=480
             )
 
     elif nav_tabs.value == "🛡️ Team Analytics":
@@ -232,8 +232,7 @@ def _(
                         <!-- Bottom Positional Output Row -->
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;">
                             <div style="font-size:0.74rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-right:4px;">Starter Breakdown:</div>
-                            {''.join(_pos_pills)}
-                        </div>
+                            {''.join(_pos_pills)}\n                        </div>
                     </div>
                     """
                 )
@@ -252,7 +251,7 @@ def _(
                     }
                     return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
-                # Helper to build clean HTML roster table
+                # Helper to build clean HTML roster table with perfectly aligned headers & rows
                 def _render_roster_table(df_subset, title_label):
                     if df_subset.empty:
                         return mo.md(f"<em>No {title_label.lower()} found.</em>")
@@ -281,21 +280,19 @@ def _(
 
                         _row = f"""
                         <tr style='border-bottom: 1px solid #f1f5f9;'>
-                            <td style='padding:8px 12px; width:50px;'>{_slot_html}</td>
-                            <td style='padding:8px 12px;'>
-                                <div style='display:flex; align-items:center; gap:10px;'>
-                                    <img src='{_r_player['headshot_url']}' style='width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0;' />
-                                    <div>
-                                        <div style='font-weight:700; font-size:0.86rem; color:#0f172a;'>{_r_player['player_name']}</div>
-                                        <div style='font-size:0.74rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
-                                    </div>
-                                </div>
+                            <td style='padding:8px 10px; text-align:center; width:52px;'>{_slot_html}</td>
+                            <td style='padding:8px 4px 8px 10px; width:38px; text-align:center;'>
+                                <img src='{_r_player['headshot_url']}' style='width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block;' />
                             </td>
-                            <td style='padding:8px 12px; text-align:center;'>{_rank_badge}</td>
-                            <td style='padding:8px 12px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a;'>{_r_player['mean_points']:.2f}</td>
-                            <td style='padding:8px 12px; text-align:left; font-size:0.78rem;'>{_r_player['consistency_tier']} <span style='color:#94a3b8; font-size:0.72rem;'>({_r_player['std_points']:.2f})</span></td>
-                            <td style='padding:8px 12px; text-align:right; color:#64748b; font-size:0.78rem;'>{_r_player['min_points']:.1f} – {_r_player['max_points']:.1f}</td>
-                            <td style='padding:8px 12px; text-align:center;'>{_st_badge}</td>
+                            <td style='padding:8px 12px 8px 6px; text-align:left;'>
+                                <div style='font-weight:700; font-size:0.86rem; color:#0f172a;'>{_r_player['player_name']}</div>
+                                <div style='font-size:0.74rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
+                            </td>
+                            <td style='padding:8px 12px; text-align:center; width:75px;'>{_rank_badge}</td>
+                            <td style='padding:8px 12px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a; width:85px;'>{_r_player['mean_points']:.2f}</td>
+                            <td style='padding:8px 12px; text-align:left; font-size:0.78rem; width:150px;'>{_r_player['consistency_tier']} <span style='color:#94a3b8; font-size:0.72rem;'>({_r_player['std_points']:.2f})</span></td>
+                            <td style='padding:8px 12px; text-align:right; color:#64748b; font-size:0.78rem; width:110px;'>{_r_player['min_points']:.1f} – {_r_player['max_points']:.1f}</td>
+                            <td style='padding:8px 12px; text-align:center; width:95px;'>{_st_badge}</td>
                         </tr>
                         """
                         _rows_html.append(_row)
@@ -311,13 +308,14 @@ def _(
                                 <table style='width:100%; border-collapse:collapse; font-size:0.82rem;'>
                                     <thead>
                                         <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'>
-                                            <th style='padding:8px 12px; text-align:left;'>Slot</th>
-                                            <th style='padding:8px 12px; text-align:left;'>Player</th>
-                                            <th style='padding:8px 12px; text-align:center;'>Pos Rank</th>
-                                            <th style='padding:8px 12px; text-align:right;'>Mean FPTS</th>
-                                            <th style='padding:8px 12px; text-align:left;'>Consistency (SD)</th>
-                                            <th style='padding:8px 12px; text-align:right;'>Range (Min-Max)</th>
-                                            <th style='padding:8px 12px; text-align:center;'>Status</th>
+                                            <th style='padding:8px 10px; text-align:center; width:52px;'>Slot</th>
+                                            <th style='padding:8px 4px 8px 10px; width:38px;'></th>
+                                            <th style='padding:8px 12px 8px 6px; text-align:left;'>Player</th>
+                                            <th style='padding:8px 12px; text-align:center; width:75px;'>Pos Rank</th>
+                                            <th style='padding:8px 12px; text-align:right; width:85px;'>Mean FPTS</th>
+                                            <th style='padding:8px 12px; text-align:left; width:150px;'>Consistency (SD)</th>
+                                            <th style='padding:8px 12px; text-align:right; width:110px;'>Range (Min-Max)</th>
+                                            <th style='padding:8px 12px; text-align:center; width:95px;'>Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -371,7 +369,7 @@ def _(
                 caption=f"{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG"
             )
 
-            # Build Standings Table Rows
+            # Build Standings Table Rows with matching column alignments
             _standings_rows = []
             for _, _r_st in _standings.iterrows():
                 _t_name = _r_st['team_name']
@@ -397,34 +395,32 @@ def _(
 
                 _row_html = f"""
                 <tr style='border-bottom: 1px solid #f1f5f9;'>
-                    <td style='padding:10px 14px; text-align:center;'>{_rank_html}</td>
-                    <td style='padding:10px 14px;'>
-                        <div style='display:flex; align-items:center; gap:10px;'>
-                            <div style='width:10px; height:10px; border-radius:50%; background:{_owner_col};'></div>
-                            <div>
-                                <div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_t_name}</div>
-                                <div style='font-size:0.75rem; color:#64748b;'>{_r_st['owner_name']}</div>
-                            </div>
-                        </div>
+                    <td style='padding:10px 12px; text-align:center; width:52px;'>{_rank_html}</td>
+                    <td style='padding:10px 2px 10px 12px; width:16px; text-align:center;'>
+                        <div style='width:10px; height:10px; border-radius:50%; background:{_owner_col}; margin:0 auto;'></div>
                     </td>
-                    <td style='padding:10px 14px; text-align:center;'>
+                    <td style='padding:10px 14px 10px 4px; text-align:left;'>
+                        <div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_t_name}</div>
+                        <div style='font-size:0.75rem; color:#64748b;'>{_r_st['owner_name']}</div>
+                    </td>
+                    <td style='padding:10px 14px; text-align:center; width:110px;'>
                         <span style='font-weight:800; font-size:0.9rem; color:#0f172a;'>{_r_st['wins']} - {_r_st['losses']}</span>
                         <div style='font-size:0.72rem; color:#64748b;'>{_r_st['win_pct']:.3f}</div>
                     </td>
-                    <td style='padding:10px 14px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a;'>{_r_st['pf']:.2f}</td>
-                    <td style='padding:10px 14px; text-align:right; font-size:0.86rem; color:#64748b;'>{_r_st['pa']:.2f}</td>
-                    <td style='padding:10px 14px; text-align:right; font-size:0.86rem;'>{_diff_html}</td>
-                    <td style='padding:10px 14px; text-align:right; font-weight:600; color:#1e293b;'>{_r_st['starter_ppg']:.1f}</td>
-                    <td style='padding:10px 14px; text-align:right; color:#64748b;'>{_r_st['bench_ppg']:.1f}</td>
-                    <td style='padding:10px 14px; text-align:center;'>
+                    <td style='padding:10px 14px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a; width:100px;'>{_r_st['pf']:.2f}</td>
+                    <td style='padding:10px 14px; text-align:right; font-size:0.86rem; color:#64748b; width:100px;'>{_r_st['pa']:.2f}</td>
+                    <td style='padding:10px 14px; text-align:right; font-size:0.86rem; width:80px;'>{_diff_html}</td>
+                    <td style='padding:10px 14px; text-align:right; font-weight:600; color:#1e293b; width:90px;'>{_r_st['starter_ppg']:.1f}</td>
+                    <td style='padding:10px 14px; text-align:right; color:#64748b; width:85px;'>{_r_st['bench_ppg']:.1f}</td>
+                    <td style='padding:10px 14px; text-align:center; width:95px;'>
                         <span style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 10px; font-weight:700; font-size:0.82rem; color:#0f172a;'>
                             ⭐ {_r_st['top_10_count']}
                         </span>
                     </td>
-                    <td style='padding:10px 14px; text-align:center;'>
+                    <td style='padding:10px 14px; text-align:center; width:85px;'>
                         <span style='font-weight:600; font-size:0.8rem; color:#16a34a;'>{_r_st['healthy_count']} / {_r_st['total_roster_count']}</span>
                     </td>
-                    <td style='padding:10px 14px; text-align:center;'>
+                    <td style='padding:10px 14px; text-align:center; width:95px;'>
                         <span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:3px 10px; font-weight:800; font-size:0.82rem;'>
                             {_r_st['power_score']:.1f}
                         </span>
@@ -443,17 +439,18 @@ def _(
                         <table style='width:100%; border-collapse:collapse; font-size:0.84rem;'>
                             <thead>
                                 <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;'>
-                                    <th style='padding:10px 14px; text-align:center;'>Rank</th>
-                                    <th style='padding:10px 14px; text-align:left;'>Team / Manager</th>
-                                    <th style='padding:10px 14px; text-align:center;'>Record (Win %)</th>
-                                    <th style='padding:10px 14px; text-align:right;'>Points For (PF)</th>
-                                    <th style='padding:10px 14px; text-align:right;'>Points Against (PA)</th>
-                                    <th style='padding:10px 14px; text-align:right;'>Diff (+/-)</th>
-                                    <th style='padding:10px 14px; text-align:right;'>Starter PPG</th>
-                                    <th style='padding:10px 14px; text-align:right;'>Bench PPG</th>
-                                    <th style='padding:10px 14px; text-align:center;'>Top 10 Assets</th>
-                                    <th style='padding:10px 14px; text-align:center;'>Health</th>
-                                    <th style='padding:10px 14px; text-align:center;'>Power Index</th>
+                                    <th style='padding:10px 12px; text-align:center; width:52px;'>Rank</th>
+                                    <th style='padding:10px 2px 10px 12px; width:16px;'></th>
+                                    <th style='padding:10px 14px 10px 4px; text-align:left;'>Team / Manager</th>
+                                    <th style='padding:10px 14px; text-align:center; width:110px;'>Record (Win %)</th>
+                                    <th style='padding:10px 14px; text-align:right; width:100px;'>Points For (PF)</th>
+                                    <th style='padding:10px 14px; text-align:right; width:100px;'>Points Against (PA)</th>
+                                    <th style='padding:10px 14px; text-align:right; width:80px;'>Diff (+/-)</th>
+                                    <th style='padding:10px 14px; text-align:right; width:90px;'>Starter PPG</th>
+                                    <th style='padding:10px 14px; text-align:right; width:85px;'>Bench PPG</th>
+                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Top 10 Assets</th>
+                                    <th style='padding:10px 14px; text-align:center; width:85px;'>Health</th>
+                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Power Index</th>
                                 </tr>
                             </thead>
                             <tbody>
