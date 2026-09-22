@@ -10,7 +10,7 @@ A self-hosted, reactive fantasy football analytics suite built with **Marimo**, 
 - [Multi-Season & Year Separation](#multi-season--year-separation)
 - [Docker & Containerization](#docker--containerization)
 - [Raspberry Pi & Local Domain Setup (with Homebridge)](#raspberry-pi--local-domain-setup-with-homebridge)
-- [Daily Automated Data Sync (09:00 CET)](#daily-automated-data-sync-0900-cet)
+- [Daily Automated Data Sync (18:30 CET)](#daily-automated-data-sync-1830-cet)
 - [Deployment & Configuration](#deployment--configuration)
 
 ---
@@ -19,7 +19,7 @@ A self-hosted, reactive fantasy football analytics suite built with **Marimo**, 
 
 ```mermaid
 flowchart TD
-    SleeperAPI["Sleeper NFL API"] -->|"Daily Sync (09:00 CET)"| Sync["src/sync.py"]
+    SleeperAPI["Sleeper NFL API"] -->|"Daily Sync (18:30 CET)"| Sync["src/sync.py"]
     Sync -->|"Write / Update"| DB[("SQLite: data/fantasy.db")]
     DB -->|"Read Active Season"| Marimo["Marimo Dashboard (app.py)"]
     Marimo -->|"Port 8501 / 80"| Client["Local Devices (Mac, Phone, Tablet)"]
@@ -153,7 +153,7 @@ To ensure previous seasons do not mix into future seasons:
    LEAGUE_ID=your_sleeper_league_id
    TEAM_NAME=your_team_name
    TZ=Europe/Berlin
-   SYNC_CRON=0 9 * * *
+   SYNC_CRON=30 18 * * *
    PORT=8501
    ```
 3. **Launch the container**:
@@ -215,14 +215,14 @@ You can broadcast `fantasy.local` alongside your existing hostname by publishing
 
 ---
 
-## ⏰ Daily Automated Data Sync (09:00 CET)
+## ⏰ Daily Automated Data Sync (18:30 CET)
 
-The Docker container runs an internal cron daemon synchronized to `Europe/Berlin` (CET/CEST):
-- Every morning at **09:00 CET** (`0 9 * * *`), `python -m src.sync --mode incremental` runs.
+The service runs an automated cron job synchronized to `Europe/Berlin` / `Europe/Zurich` (CET/CEST):
+- Every day at **18:30 CET** (`30 18 * * *`), `python -m src.sync --mode incremental` executes.
 - Execution logs are saved to `data/cron.log`.
 - To trigger a manual sync anytime:
   ```bash
-  docker exec -it nfl-fantasy-dashboard python -m src.sync
+  python -m src.sync --mode incremental
   ```
 
 ---

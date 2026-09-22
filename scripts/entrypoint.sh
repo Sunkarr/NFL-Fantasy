@@ -13,8 +13,8 @@ if [ ! -f /app/data/fantasy.db ]; then
     python -m src.sync --mode full || true
 fi
 
-# Configure cron for daily morning sync (Default: 9:00 CET / Europe/Berlin)
-CRON_SCHEDULE="${SYNC_CRON:-0 9 * * *}"
+# Configure cron for daily sync (Default: 18:30 CET / Europe/Berlin)
+CRON_SCHEDULE="${SYNC_CRON:-30 18 * * *}"
 echo "📅 Setting up sync schedule: '${CRON_SCHEDULE}'"
 
 # Write crontab file with environment variables preserved

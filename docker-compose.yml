@@ -17,7 +17,7 @@ services:
       - TZ=${TZ:-Europe/Berlin}
       - LEAGUE_ID=${LEAGUE_ID}
       - TEAM_NAME=${TEAM_NAME}
-      - SYNC_CRON=${SYNC_CRON:-0 9 * * *}
+      - SYNC_CRON=${SYNC_CRON:-30 18 * * *}
       - PORT=8501
     volumes:
       - ./data:/app/data
