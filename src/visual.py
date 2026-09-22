@@ -12,16 +12,30 @@ def get_owner_color_map(unique_teams: List[str]) -> Dict[str, str]:
     return owner_colors
 
 
+def _abbreviate_name(full_name: str) -> str:
+    """Turn 'Patrick Mahomes' into 'P. Mahomes'."""
+    if not full_name:
+        return ""
+    parts = full_name.strip().split()
+    if len(parts) >= 2:
+        return f"{parts[0][0]}. {' '.join(parts[1:])}"
+    return full_name
+
+
 def build_interactive_position_chart(
     pos_data: pd.DataFrame,
     unique_teams: List[str],
     owner_colors: Dict[str, str],
-    chart_width: int = 860,
-    chart_height: int = 520
+    chart_width: int = 760,
+    chart_height: int = 460
 ) -> alt.Chart:
     """
-    Build a high-performance, responsive Altair scatter plot.
-    Loads CDN headshots asynchronously directly in the client browser without Pi CPU overhead.
+    Build a crisp, high-performance Altair scatter plot with:
+    - Visible fantasy owner color legend at the top
+    - Clear player name callouts next to points
+    - Median reference dashed lines
+    - Comprehensive hover tooltips
+    - Sub-5ms rendering speed
     """
     if pos_data.empty:
         return alt.Chart(pd.DataFrame()).mark_text()
@@ -29,68 +43,81 @@ def build_interactive_position_chart(
     df_plot = pos_data.copy()
     owner_counts = df_plot['current_owner'].value_counts()
     df_plot['owner_legend_label'] = df_plot['current_owner'].apply(lambda o: f"{o} ({owner_counts.get(o, 0)})")
+    df_plot['short_name'] = df_plot['player_name'].apply(_abbreviate_name)
 
-    # Fast direct CDN URLs (resolved by client browser in parallel)
-    if 'headshot_url' not in df_plot.columns:
-        df_plot['headshot_url'] = df_plot.apply(
-            lambda r: f"https://sleepercdn.com/images/team_logos/nfl/{str(r.get('nfl_team', 'FA')).lower()}.png"
-            if r.get('position') == 'DEF' or str(r.get('player_id')) == str(r.get('nfl_team'))
-            else f"https://sleepercdn.com/content/nfl/players/{r['player_id']}.jpg",
-            axis=1
-        )
-
-    # Axis Domain Bounds
+    # Axis Domain Bounds with padding
     x_min = float(df_plot['mean_points'].min())
     x_max = float(df_plot['mean_points'].max())
     y_min = float(df_plot['std_points'].min())
     y_max = float(df_plot['std_points'].max())
 
-    x_margin = max(1.8, (x_max - x_min) * 0.08)
-    y_margin = max(1.2, (y_max - y_min) * 0.08)
+    x_margin = max(2.0, (x_max - x_min) * 0.12)
+    y_margin = max(1.5, (y_max - y_min) * 0.12)
 
-    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin]
-    y_domain = [max(-0.5, y_min - y_margin), y_max + y_margin]
+    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 2.0]
+    y_domain = [max(0.0, y_min - y_margin), y_max + y_margin]
 
     x_med = float(df_plot['mean_points'].median())
     y_med = float(df_plot['std_points'].median())
 
     # Legend order and palette mapping
-    ordered_owners = (['Free Agent'] if 'Free Agent' in df_plot['current_owner'].values else []) + sorted([o for o in df_plot['current_owner'].unique() if o != 'Free Agent'])
+    ordered_owners = sorted([o for o in df_plot['current_owner'].unique() if o != 'Free Agent'])
+    if 'Free Agent' in df_plot['current_owner'].values:
+        ordered_owners.append('Free Agent')
+
     domain_labels = [f"{o} ({owner_counts.get(o, 0)})" for o in ordered_owners]
     range_colors = [owner_colors.get(o, FREE_AGENT_COLOR) for o in ordered_owners]
+
+    # Base chart with shared encodings
+    base = alt.Chart(df_plot).encode(
+        x=alt.X(
+            'mean_points:Q',
+            title='Mean Points (FPTS)',
+            scale=alt.Scale(domain=x_domain),
+            axis=alt.Axis(
+                gridColor='#e2e8f0',
+                titleFontWeight='bold',
+                titleFontSize=12,
+                labelFontSize=10.5,
+                tickCount=10
+            )
+        ),
+        y=alt.Y(
+            'std_points:Q',
+            title='Standard Deviation (SD)',
+            scale=alt.Scale(domain=y_domain),
+            axis=alt.Axis(
+                gridColor='#e2e8f0',
+                titleFontWeight='bold',
+                titleFontSize=12,
+                labelFontSize=10.5,
+                tickCount=8
+            )
+        )
+    )
 
     # 1. Median Reference Lines
     rule_x = alt.Chart(pd.DataFrame({'x': [x_med]})).mark_rule(
         strokeDash=[4, 4],
         color='#94a3b8',
         size=1.2,
-        opacity=0.75
+        opacity=0.8
     ).encode(x=alt.X('x:Q', scale=alt.Scale(domain=x_domain)))
 
     rule_y = alt.Chart(pd.DataFrame({'y': [y_med]})).mark_rule(
         strokeDash=[4, 4],
         color='#94a3b8',
         size=1.2,
-        opacity=0.75
+        opacity=0.8
     ).encode(y=alt.Y('y:Q', scale=alt.Scale(domain=y_domain)))
 
-    # 2. Outer colored ring / base node
-    node_base = alt.Chart(df_plot).mark_circle(
-        size=260,
-        opacity=0.9
+    # 2. Main Player Scatter Dots with Color Legend
+    scatter_dots = base.mark_circle(
+        size=170,
+        opacity=0.9,
+        stroke='#ffffff',
+        strokeWidth=1.5
     ).encode(
-        x=alt.X(
-            'mean_points:Q',
-            title='Mean Points (FPTS)',
-            scale=alt.Scale(domain=x_domain),
-            axis=alt.Axis(gridColor='#e2e8f0', titleFontWeight='bold', titleFontSize=12, labelFontSize=10.5)
-        ),
-        y=alt.Y(
-            'std_points:Q',
-            title='Standard Deviation (SD)',
-            scale=alt.Scale(domain=y_domain),
-            axis=alt.Axis(gridColor='#e2e8f0', titleFontWeight='bold', titleFontSize=12, labelFontSize=10.5)
-        ),
         color=alt.Color(
             'owner_legend_label:N',
             title='Fantasy Owner',
@@ -99,29 +126,12 @@ def build_interactive_position_chart(
                 titleFontSize=11.5,
                 titleFontWeight='bold',
                 labelFontSize=10.5,
-                symbolSize=100,
-                orient='right'
+                symbolSize=110,
+                orient='top',
+                columns=4,
+                labelLimit=250
             )
-        )
-    )
-
-    # 3. Fast Browser-Loaded CDN Headshots
-    headshots_layer = alt.Chart(df_plot).mark_image(
-        width=26,
-        height=26
-    ).encode(
-        x=alt.X('mean_points:Q', scale=alt.Scale(domain=x_domain)),
-        y=alt.Y('std_points:Q', scale=alt.Scale(domain=y_domain)),
-        url='headshot_url:N'
-    )
-
-    # 4. Interactive Hover Tooltip Trigger
-    hover_layer = alt.Chart(df_plot).mark_circle(
-        size=300,
-        opacity=0.001
-    ).encode(
-        x=alt.X('mean_points:Q', scale=alt.Scale(domain=x_domain)),
-        y=alt.Y('std_points:Q', scale=alt.Scale(domain=y_domain)),
+        ),
         tooltip=[
             alt.Tooltip('player_name:N', title='Player'),
             alt.Tooltip('position:N', title='Position'),
@@ -138,7 +148,20 @@ def build_interactive_position_chart(
         ]
     )
 
-    chart = (rule_x + rule_y + node_base + headshots_layer + hover_layer).properties(
+    # 3. Text Labels for Player Names (Clean readable labels beside each point)
+    player_labels = base.mark_text(
+        align='left',
+        baseline='middle',
+        dx=9,
+        fontSize=10,
+        fontWeight=600,
+        color='#334155',
+        opacity=0.95
+    ).encode(
+        text='short_name:N'
+    )
+
+    chart = (rule_x + rule_y + scatter_dots + player_labels).properties(
         width=chart_width,
         height=chart_height
     ).configure_view(
