@@ -1,0 +1,32 @@
+# Environment & Secrets (NEVER COMMIT)
+.env
+.env.*
+!.env.example
+
+# Data & SQLite Database
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python Caches & Build
+__pycache__/
+*.py[cod]
+*$py.class
+__marimo__/
+.DS_Store
+
+# IDE / AI assistants
+.idea/
+.vscode/
+/.aiassistant
+
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Notebooks & checkpoints
+.ipynb_checkpoints/
+*.ipynb
