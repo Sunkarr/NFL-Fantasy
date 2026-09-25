@@ -3,9 +3,7 @@ import marimo
 __generated_with = "0.24.2"
 app = marimo.App(
     width="full",
-    app_title="NFL Fantasy Analytics",
-    html_head_mode="append",
-    css_file=None,
+    app_title="🏈 NFL Fantasy Analytics"
 )
 
 
@@ -19,31 +17,30 @@ def _():
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.visual import build_interactive_position_chart, get_owner_color_map
 
-    # Inject Favicon & Dynamic Styles
-    _head_inject = mo.Html(
+    # Inject Favicon via standard HTML
+    head_favicon = mo.Html(
         """
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏈</text></svg>">
-        <title>🏈 NFL Fantasy Analytics</title>
         """
     )
 
     return (
         DB_PATH,
         DEFAULT_LEAGUE_ID,
-        _head_inject,
         build_interactive_position_chart,
         compute_player_aggregates,
         get_league_overview_analytics,
         get_owner_color_map,
         get_team_roster_analytics,
+        head_favicon,
         load_league_data,
         mo,
     )
 
 
 @app.cell
-def _(_head_inject):
-    _head_inject
+def _(head_favicon):
+    head_favicon
     return
 
 
