@@ -442,7 +442,7 @@ def _(
                     <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
                         <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">⚡ League Avg Starters</div>
                         <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['avg_starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div>
-                        <div style="font-size:0.75rem; color:#94a3b8;">Avg Starter Output / Wk</div>
+                        <div style="font-size:0.75rem; color:#94a3b8;">Avg Weekly Team Score</div>
                     </div>
                     <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
                         <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🔥 Top Scoring Offense</div>
@@ -487,6 +487,29 @@ def _(
 
                 _owner_col = owner_colors.get(_t_name, '#94a3b8')
 
+                # Multi-tier Health Indicator logic:
+                # 1. Dark Red (Critical): Fewer healthy players than starter slots needed (healthy < starters_needed)
+                # 2. Bright Red (Warning): Any player in the starting lineup is injured / questionable (starter_injured > 0)
+                # 3. Amber / Yellow (Notice): Starters are healthy, but bench has injured players (healthy < total)
+                # 4. Green (Full Health): 100% of the entire roster is healthy
+                _healthy = _r_st['healthy_count']
+                _total = _r_st['total_roster_count']
+                _starter_inj = _r_st['starter_injured_count']
+                _starters_needed = _r_st['starters_total']
+
+                if _healthy < _starters_needed:
+                    # Critical Shortage: Not enough healthy players to field a full lineup
+                    _health_html = f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:6px; padding:2px 7px; font-weight:800; font-size:0.8rem;'>🚨 {_healthy} / {_total}</span>"
+                elif _starter_inj > 0:
+                    # Starter Injured: Red warning
+                    _health_html = f"<span style='color:#dc2626; font-weight:700; font-size:0.82rem;'>🔴 {_healthy} / {_total}</span>"
+                elif _healthy < _total:
+                    # Only Bench Injured: Amber/Yellow notice
+                    _health_html = f"<span style='color:#b45309; font-weight:700; font-size:0.82rem;'>🟡 {_healthy} / {_total}</span>"
+                else:
+                    # 100% Healthy
+                    _health_html = f"<span style='color:#16a34a; font-weight:700; font-size:0.82rem;'>🟢 {_healthy} / {_total}</span>"
+
                 _row_html = f"""
                 <tr style='border-bottom: 1px solid #f1f5f9;'>
                     <td style='padding:10px 12px; text-align:center; width:52px;'>{_rank_html}</td>
@@ -512,7 +535,7 @@ def _(
                         </span>
                     </td>
                     <td style='padding:10px 14px; text-align:center; width:85px;'>
-                        <span style='font-weight:600; font-size:0.8rem; color:#16a34a;'>{_r_st['healthy_count']} / {_r_st['total_roster_count']}</span>
+                        {_health_html}
                     </td>
                     <td style='padding:10px 14px; text-align:center; width:95px;'>
                         <span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:3px 10px; font-weight:800; font-size:0.82rem;'>

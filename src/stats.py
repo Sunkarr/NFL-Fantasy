@@ -75,6 +75,7 @@ def get_team_roster_analytics(
     - Bench ordered by position & PPG
     - Top-10 elite asset metrics
     - Positional output breakdown and total PPG
+    - Starters and bench injury breakdown
     """
     if df_rosters is None or df_rosters.empty or df_player_stats is None or df_player_stats.empty:
         return {}
@@ -145,7 +146,10 @@ def get_team_roster_analytics(
     top_5_count = int((merged['pos_rank'] <= 5).sum() if not merged.empty else 0)
 
     # Injury count
-    injured_count = sum(merged['injury_status'].isin(['Questionable', 'Out', 'IR', 'PUP', 'Doubtful', 'DNR']))
+    injured_status_list = ['Questionable', 'Out', 'IR', 'PUP', 'Doubtful', 'DNR', 'NA']
+    injured_count = sum(merged['injury_status'].isin(injured_status_list))
+    starter_injured_count = sum(starters_df['injury_status'].isin(injured_status_list)) if not starters_df.empty else 0
+    total_starters_count = len(starters_df)
 
     return {
         'team_name': team_name,
@@ -160,6 +164,8 @@ def get_team_roster_analytics(
         'top_5_count': top_5_count,
         'pos_breakdown': pos_breakdown,
         'injured_count': injured_count,
+        'starter_injured_count': starter_injured_count,
+        'total_starters_count': total_starters_count,
         'starters_df': starters_df,
         'bench_df': bench_df,
         'all_roster_df': merged
@@ -202,6 +208,11 @@ def get_league_overview_analytics(
         # 40% Win %, 35% Starter PPG relative, 25% Total PF relative
         power_score = round((win_pct * 40.0) + (min(1.0, an['starter_ppg'] / 200.0) * 35.0) + (min(1.0, pf / 400.0) * 25.0), 1)
 
+        total_roster = len(an['all_roster_df'])
+        healthy_count = total_roster - an['injured_count']
+        starter_injured = an['starter_injured_count']
+        starters_total = an['total_starters_count']
+
         standings.append({
             'rank': idx + 1,
             'team_name': t_name,
@@ -216,8 +227,10 @@ def get_league_overview_analytics(
             'bench_ppg': an['bench_ppg'],
             'top_10_count': an['top_10_count'],
             'top_5_count': an['top_5_count'],
-            'healthy_count': len(an['all_roster_df']) - an['injured_count'],
-            'total_roster_count': len(an['all_roster_df']),
+            'healthy_count': healthy_count,
+            'total_roster_count': total_roster,
+            'starter_injured_count': starter_injured,
+            'starters_total': starters_total,
             'power_score': power_score
         })
 
