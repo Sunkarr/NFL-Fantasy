@@ -75,7 +75,7 @@ def get_team_roster_analytics(
     - Bench ordered by position & PPG
     - Top-10 elite asset metrics
     - Positional output breakdown and total PPG
-    - Starters and bench injury breakdown
+    - Starters and bench injury lists for detailed tooltip pinpoints
     """
     if df_rosters is None or df_rosters.empty or df_player_stats is None or df_player_stats.empty:
         return {}
@@ -145,11 +145,20 @@ def get_team_roster_analytics(
     top_10_count = int((merged['pos_rank'] <= 10).sum() if not merged.empty else 0)
     top_5_count = int((merged['pos_rank'] <= 5).sum() if not merged.empty else 0)
 
-    # Injury count
+    # Detailed Injury Extraction
     injured_status_list = ['Questionable', 'Out', 'IR', 'PUP', 'Doubtful', 'DNR', 'NA']
-    injured_count = sum(merged['injury_status'].isin(injured_status_list))
-    starter_injured_count = sum(starters_df['injury_status'].isin(injured_status_list)) if not starters_df.empty else 0
-    total_starters_count = len(starters_df)
+    injured_all = merged[merged['injury_status'].isin(injured_status_list)]
+    injured_starters = starters_df[starters_df['injury_status'].isin(injured_status_list)] if not starters_df.empty else pd.DataFrame()
+    injured_bench = bench_df[bench_df['injury_status'].isin(injured_status_list)] if not bench_df.empty else pd.DataFrame()
+
+    def format_inj_list(df_sub):
+        if df_sub.empty:
+            return ""
+        items = [f"{r['player_name']} ({r['injury_status']})" for _, r in df_sub.iterrows()]
+        return ", ".join(items)
+
+    starter_inj_details = format_inj_list(injured_starters)
+    bench_inj_details = format_inj_list(injured_bench)
 
     return {
         'team_name': team_name,
@@ -163,9 +172,11 @@ def get_team_roster_analytics(
         'top_10_count': top_10_count,
         'top_5_count': top_5_count,
         'pos_breakdown': pos_breakdown,
-        'injured_count': injured_count,
-        'starter_injured_count': starter_injured_count,
-        'total_starters_count': total_starters_count,
+        'injured_count': len(injured_all),
+        'starter_injured_count': len(injured_starters),
+        'starter_inj_details': starter_inj_details,
+        'bench_inj_details': bench_inj_details,
+        'total_starters_count': len(starters_df),
         'starters_df': starters_df,
         'bench_df': bench_df,
         'all_roster_df': merged
@@ -230,6 +241,8 @@ def get_league_overview_analytics(
             'healthy_count': healthy_count,
             'total_roster_count': total_roster,
             'starter_injured_count': starter_injured,
+            'starter_inj_details': an['starter_inj_details'],
+            'bench_inj_details': an['bench_inj_details'],
             'starters_total': starters_total,
             'power_score': power_score
         })

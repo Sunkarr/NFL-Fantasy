@@ -487,28 +487,41 @@ def _(
 
                 _owner_col = owner_colors.get(_t_name, '#94a3b8')
 
-                # Multi-tier Health Indicator logic:
-                # 1. Dark Red (Critical): Fewer healthy players than starter slots needed (healthy < starters_needed)
-                # 2. Bright Red (Warning): Any player in the starting lineup is injured / questionable (starter_injured > 0)
-                # 3. Amber / Yellow (Notice): Starters are healthy, but bench has injured players (healthy < total)
-                # 4. Green (Full Health): 100% of the entire roster is healthy
+                # CSS Micro-Dot Pinpoint Health Indicator (consistent with Consistency / Status dots)
                 _healthy = _r_st['healthy_count']
                 _total = _r_st['total_roster_count']
                 _starter_inj = _r_st['starter_injured_count']
                 _starters_needed = _r_st['starters_total']
+                _st_details = _r_st.get('starter_inj_details', '')
+                _bn_details = _r_st.get('bench_inj_details', '')
 
                 if _healthy < _starters_needed:
-                    # Critical Shortage: Not enough healthy players to field a full lineup
-                    _health_html = f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:6px; padding:2px 7px; font-weight:800; font-size:0.8rem;'>🚨 {_healthy} / {_total}</span>"
+                    _tooltip = f"CRITICAL SHORTAGE: Only {_healthy} healthy players available ({_starters_needed} starters needed)!"
+                    _dot_color = "#991b1b"
+                    _text_color = "#991b1b"
+                    _extra_style = "background:#fee2e2; border:1px solid #fca5a5; padding:2px 8px; border-radius:12px;"
                 elif _starter_inj > 0:
-                    # Starter Injured: Red warning
-                    _health_html = f"<span style='color:#dc2626; font-weight:700; font-size:0.82rem;'>🔴 {_healthy} / {_total}</span>"
+                    _tooltip = f"Starter Injured: {_st_details}"
+                    _dot_color = "#ef4444"
+                    _text_color = "#dc2626"
+                    _extra_style = ""
                 elif _healthy < _total:
-                    # Only Bench Injured: Amber/Yellow notice
-                    _health_html = f"<span style='color:#b45309; font-weight:700; font-size:0.82rem;'>🟡 {_healthy} / {_total}</span>"
+                    _tooltip = f"Bench Injured: {_bn_details}"
+                    _dot_color = "#f59e0b"
+                    _text_color = "#b45309"
+                    _extra_style = ""
                 else:
-                    # 100% Healthy
-                    _health_html = f"<span style='color:#16a34a; font-weight:700; font-size:0.82rem;'>🟢 {_healthy} / {_total}</span>"
+                    _tooltip = "100% Healthy: Full roster fit and active"
+                    _dot_color = "#22c55e"
+                    _text_color = "#16a34a"
+                    _extra_style = ""
+
+                _health_html = f"""
+                <span title="{_tooltip}" style="display:inline-flex; align-items:center; justify-content:center; gap:6px; color:{_text_color}; font-weight:600; font-size:0.8rem; white-space:nowrap; cursor:help; {_extra_style}">
+                    <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:{_dot_color}; display:inline-block;"></span>
+                    <span>{_healthy} / {_total}</span>
+                </span>
+                """
 
                 _row_html = f"""
                 <tr style='border-bottom: 1px solid #f1f5f9;'>
