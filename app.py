@@ -316,8 +316,7 @@ def _(
                     }
                     return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
-                # Proportional, harmonious column widths:
-                # Slot: 6% | Photo: 4% | Player: 34% | Pos Rank: 8% | Mean FPTS: 11% | Consistency: 15% | Range: 11% | Status: 11%
+                # Proportional, harmonious column widths
                 def _render_roster_table(df_subset, title_label):
                     if df_subset.empty:
                         return mo.md(f"<em>No {title_label.lower()} found.</em>")
@@ -428,31 +427,37 @@ def _(
         else:
             _standings = _league_an['standings_df']
 
-            # Top League KPI Cards
-            _card_leader = mo.stat(
-                value=f"{_league_an['leader_team']['team_name']}",
-                label="👑 1st Place Leader",
-                caption=f"{_league_an['leader_team']['wins']}-{_league_an['leader_team']['losses']} • {_league_an['leader_team']['pf']:.1f} PF"
-            )
-            _card_avg = mo.stat(
-                value=f"{_league_an['avg_starter_ppg']:.1f} FPTS",
-                label="⚡ League Avg Starters",
-                caption="Avg Starter Output / Wk"
-            )
-            _card_top_scorer = mo.stat(
-                value=f"{_league_an['high_pf_team']['team_name']}",
-                label="🔥 Top Scoring Offense",
-                caption=f"{_league_an['high_pf_team']['pf']:.1f} Points For"
-            )
-            _card_toughest = mo.stat(
-                value=f"{_league_an['tough_sched_team']['team_name']}",
-                label="🧱 Toughest Schedule",
-                caption=f"{_league_an['tough_sched_team']['pa']:.1f} Points Against"
-            )
-            _card_bench = mo.stat(
-                value=f"{_league_an['deepest_bench_team']['team_name']}",
-                label="🪑 Deepest Bench",
-                caption=f"{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG"
+            # Responsive HTML Grid for League KPI Cards (Works on mobile & desktop)
+            _league_kpi_grid = mo.md(
+                f"""
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; width:100%; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">👑 1st Place Leader</div>
+                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['leader_team']['team_name']}</div>
+                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['leader_team']['wins']}-{_league_an['leader_team']['losses']} • {_league_an['leader_team']['pf']:.1f} PF</div>
+                    </div>
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">⚡ League Avg Starters</div>
+                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['avg_starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div>
+                        <div style="font-size:0.75rem; color:#94a3b8;">Avg Starter Output / Wk</div>
+                    </div>
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🔥 Top Scoring Offense</div>
+                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['high_pf_team']['team_name']}</div>
+                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['high_pf_team']['pf']:.1f} Points For</div>
+                    </div>
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🧱 Toughest Schedule</div>
+                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['tough_sched_team']['team_name']}</div>
+                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['tough_sched_team']['pa']:.1f} Points Against</div>
+                    </div>
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🪑 Deepest Bench</div>
+                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['deepest_bench_team']['team_name']}</div>
+                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG</div>
+                    </div>
+                </div>
+                """
             )
 
             # Build Standings Table Rows with matching column alignments
@@ -549,7 +554,7 @@ def _(
             )
 
             _view = mo.vstack([
-                mo.hstack([_card_leader, _card_avg, _card_top_scorer, _card_toughest, _card_bench], justify="start", gap=2),
+                _league_kpi_grid,
                 _standings_table,
                 _fixed_corner_badge
             ], gap=1)
