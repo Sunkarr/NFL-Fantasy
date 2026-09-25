@@ -8,22 +8,14 @@ services:
     container_name: nfl-fantasy-dashboard
     restart: unless-stopped
     ports:
-      - "${PORT:-8501}:8501"
-      # To run directly on standard HTTP port 80 without port in URL:
-      # - "80:8501"
+      - "${PORT:-80}:8501"
     env_file:
       - .env
-    environment:
-      - TZ=${TZ:-Europe/Berlin}
-      - LEAGUE_ID=${LEAGUE_ID}
-      - TEAM_NAME=${TEAM_NAME}
-      - SYNC_CRON=${SYNC_CRON:-30 18 * * *}
-      - PORT=8501
     volumes:
       - ./data:/app/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      - ./src:/app/src
+      - ./app.py:/app/app.py
+    environment:
+      - LEAGUE_ID=${LEAGUE_ID}
+      - TEAM_NAME=${TEAM_NAME}
+      - TZ=${TZ:-Europe/Berlin}
