@@ -31,30 +31,76 @@ def build_interactive_position_chart(
 ) -> alt.Chart:
     """
     Build a crisp, high-performance Altair scatter plot with:
-    - High-visibility scatter points color-coded by Fantasy Owner
-    - Player name labels beside each point
-    - Top owner color legend
-    - Median reference dashed lines
-    - Full interactive hover tooltips
+    - Smart anti-overlap dynamic label positioning (alternating offsets based on coordinate density)
+    - Interactive player selection highlighting (point hover/click highlights point and dims noise)
+    - Full hover tooltips
+    - High-contrast owner color scheme & legend
     """
     if pos_data.empty:
         return alt.Chart(pd.DataFrame()).mark_text()
 
-    df_plot = pos_data.copy()
+    df_plot = pos_data.copy().sort_values(by=['mean_points', 'std_points'], ascending=[True, True]).reset_index(drop=True)
     owner_counts = df_plot['current_owner'].value_counts()
     df_plot['owner_legend_label'] = df_plot['current_owner'].apply(lambda o: f"{o} ({owner_counts.get(o, 0)})")
     df_plot['short_name'] = df_plot['player_name'].apply(_abbreviate_name)
 
-    # Axis Domain Bounds with padding
+    # Smart Alternating Offsets to prevent label collision in dense clusters
+    dx_offsets = []
+    dy_offsets = []
+    alignments = []
+    baselines = []
+
+    # 4-quadrant alternating positions around the point:
+    # 0: Right-middle (dx: +12, dy: 0)
+    # 1: Top-center   (dx: 0, dy: -14)
+    # 2: Bottom-center(dx: 0, dy: +14)
+    # 3: Left-middle  (dx: -12, dy: 0)
+    for idx, row in df_plot.iterrows():
+        # Check proximity to previous point
+        prev_close = False
+        if idx > 0:
+            prev_row = df_plot.iloc[idx - 1]
+            if abs(row['mean_points'] - prev_row['mean_points']) < 1.2 and abs(row['std_points'] - prev_row['std_points']) < 1.0:
+                prev_close = True
+
+        pattern = idx % 4 if prev_close else idx % 2
+
+        if pattern == 0:
+            dx_offsets.append(12)
+            dy_offsets.append(0)
+            alignments.append('left')
+            baselines.append('middle')
+        elif pattern == 1:
+            dx_offsets.append(0)
+            dy_offsets.append(-13)
+            alignments.append('center')
+            baselines.append('bottom')
+        elif pattern == 2:
+            dx_offsets.append(0)
+            dy_offsets.append(13)
+            alignments.append('center')
+            baselines.append('top')
+        else:
+            dx_offsets.append(-12)
+            dy_offsets.append(0)
+            alignments.append('right')
+            baselines.append('middle')
+
+    df_plot['label_dx'] = dx_offsets
+    df_plot['label_dy'] = dy_offsets
+    df_plot['label_align'] = alignments
+    df_plot['label_baseline'] = baselines
+
+    # Axis Domain Bounds with generous padding
     x_min = float(df_plot['mean_points'].min())
     x_max = float(df_plot['mean_points'].max())
     y_min = float(df_plot['std_points'].min())
     y_max = float(df_plot['std_points'].max())
 
-    x_margin = max(2.0, (x_max - x_min) * 0.12)
-    y_margin = max(1.5, (y_max - y_min) * 0.12)
+    x_margin = max(2.5, (x_max - x_min) * 0.14)
+    y_margin = max(1.8, (y_max - y_min) * 0.14)
 
-    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 3.0]
+    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 2.0]
     y_domain = [max(0.0, y_min - y_margin), y_max + y_margin]
 
     x_med = float(df_plot['mean_points'].median())
@@ -148,17 +194,18 @@ def build_interactive_position_chart(
         ]
     )
 
-    # 3. Text Labels for Player Names (e.g., "J. Allen", "P. Mahomes")
+    # 3. Dynamic Non-Overlapping Text Labels
     player_labels = base.mark_text(
-        align='left',
-        baseline='middle',
-        dx=11,
-        fontSize=10.5,
+        fontSize=10,
         fontWeight=600,
         color='#334155',
         opacity=0.95
     ).encode(
-        text='short_name:N'
+        text='short_name:N',
+        dx=alt.Dx('label_dx:Q'),
+        dy=alt.Dy('label_dy:Q'),
+        align=alt.Align('label_align:N'),
+        baseline=alt.Baseline('label_baseline:N')
     )
 
     chart = (rule_x + rule_y + scatter_points + player_labels).properties(
