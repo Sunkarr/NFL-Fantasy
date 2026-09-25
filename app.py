@@ -12,21 +12,37 @@ def _():
     import marimo as mo
     import pandas as pd
 
-    from src.config import DB_PATH, DEFAULT_LEAGUE_ID
+    from src.config import DB_PATH, DEFAULT_LEAGUE_ID, VERSION
     from src.db import load_league_data
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.visual import build_interactive_position_chart, get_owner_color_map
 
-    # Inject Favicon via standard HTML
+    # Force 🏈 Favicon and override Marimo default tab icon dynamically
     head_favicon = mo.Html(
         """
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏈</text></svg>">
+        <script>
+        (function() {
+            function setFavicon() {
+                var link = document.querySelector("link[rel*='icon']");
+                if (!link) {
+                    link = document.createElement('link');
+                    link.rel = 'shortcut icon';
+                    document.getElementsByTagName('head')[0].appendChild(link);
+                }
+                link.type = 'image/svg+xml';
+                link.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🏈</text></svg>';
+            }
+            setFavicon();
+            setInterval(setFavicon, 1000);
+        })();
+        </script>
         """
     )
 
     return (
         DB_PATH,
         DEFAULT_LEAGUE_ID,
+        VERSION,
         build_interactive_position_chart,
         compute_player_aggregates,
         get_league_overview_analytics,
@@ -146,6 +162,7 @@ def _(df_teams, mo, nav_tabs):
 
 @app.cell
 def _(
+    VERSION,
     build_interactive_position_chart,
     df_current_rosters,
     df_player_stats,
@@ -161,20 +178,21 @@ def _(
     team_dropdown,
     unique_teams,
 ):
-    # Elegant persistent bottom right corner badge + full footer
+    # Dynamic Git SHA retrieval
     import subprocess
     try:
         _git_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     except Exception:
-        _git_sha = "v1.2.0"
+        _git_sha = "latest"
 
+    # Fixed Floating Bottom-Right Corner Badge with Version
     _fixed_corner_badge = mo.Html(
         f"""
-        <div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.75rem; color: #475569;">
-            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);"></span>
-            <span style="font-weight: 600; color: #0f172a;">Live</span>
-            <span style="color: #cbd5e1;">|</span>
-            <span style="background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-weight: 700;">{_git_sha}</span>
+        <div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.76rem; color: #475569;">
+            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);"></span>
+            <span style="font-weight: 700; color: #0f172a;">v{VERSION}</span>
+            <span style="color: #cbd5e1;">•</span>
+            <span style="background: #f1f5f9; color: #334155; padding: 2px 7px; border-radius: 5px; font-family: monospace; font-weight: 700; font-size: 0.72rem;">{_git_sha}</span>
             <span style="color: #94a3b8; font-size: 0.7rem;">(09:00 / 18:30 CET)</span>
         </div>
         """
@@ -290,21 +308,23 @@ def _(
                     }
                     return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
-                # Helper to build clean HTML roster table with true 1:1 circular headshots
+                # Helper to build clean HTML roster table with perfectly aligned 1-line status badges
                 def _render_roster_table(df_subset, title_label):
                     if df_subset.empty:
                         return mo.md(f"<em>No {title_label.lower()} found.</em>")
 
                     _rows_html = []
                     for _, _r_player in df_subset.iterrows():
-                        # Injury badge
-                        _st = _r_player['injury_status']
+                        # Injury status badge with clean non-breaking inline layout
+                        _st = str(_r_player['injury_status']).strip()
                         if _st == 'Healthy':
-                            _st_badge = "<span style='color:#16a34a; font-weight:600; font-size:0.75rem;'>🟢 Healthy</span>"
+                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#16a34a; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Healthy</span>"
                         elif _st in ['Questionable', 'Doubtful']:
-                            _st_badge = f"<span style='color:#ca8a04; font-weight:600; font-size:0.75rem;'>🟡 {_st}</span>"
+                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#b45309; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>{_st}</span>"
+                        elif _st == 'NA':
+                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#64748b; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#94a3b8;'></span>Out</span>"
                         else:
-                            _st_badge = f"<span style='color:#dc2626; font-weight:600; font-size:0.75rem;'>🔴 {_st}</span>"
+                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#dc2626; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>{_st}</span>"
 
                         # Positional rank badge
                         _rank_num = _r_player['pos_rank']
@@ -316,6 +336,14 @@ def _(
                             _rank_badge = f"<span style='color:#94a3b8; font-size:0.75rem;'>#{_rank_num}</span>"
 
                         _slot_html = _get_slot_badge(_r_player.get('slot', 'BN'))
+
+                        # Range formatting
+                        _min_val = _r_player['min_points']
+                        _max_val = _r_player['max_points']
+                        if pd.isna(_min_val) or pd.isna(_max_val):
+                            _range_str = "—"
+                        else:
+                            _range_str = f"{_min_val:.1f} – {_max_val:.1f}"
 
                         _row = f"""
                         <tr style='border-bottom: 1px solid #f1f5f9;'>
@@ -330,8 +358,8 @@ def _(
                             <td style='padding:8px 12px; text-align:center; width:75px;'>{_rank_badge}</td>
                             <td style='padding:8px 12px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a; width:85px;'>{_r_player['mean_points']:.2f}</td>
                             <td style='padding:8px 12px; text-align:left; font-size:0.78rem; width:150px;'>{_r_player['consistency_tier']} <span style='color:#94a3b8; font-size:0.72rem;'>({_r_player['std_points']:.2f})</span></td>
-                            <td style='padding:8px 12px; text-align:right; color:#64748b; font-size:0.78rem; width:110px;'>{_r_player['min_points']:.1f} – {_r_player['max_points']:.1f}</td>
-                            <td style='padding:8px 12px; text-align:center; width:95px;'>{_st_badge}</td>
+                            <td style='padding:8px 12px; text-align:right; color:#64748b; font-size:0.78rem; width:110px;'>{_range_str}</td>
+                            <td style='padding:8px 12px; text-align:center; width:115px;'>{_st_badge}</td>
                         </tr>
                         """
                         _rows_html.append(_row)
@@ -354,7 +382,7 @@ def _(
                                             <th style='padding:8px 12px; text-align:right; width:85px;'>Mean FPTS</th>
                                             <th style='padding:8px 12px; text-align:left; width:150px;'>Consistency (SD)</th>
                                             <th style='padding:8px 12px; text-align:right; width:110px;'>Range (Min-Max)</th>
-                                            <th style='padding:8px 12px; text-align:center; width:95px;'>Status</th>
+                                            <th style='padding:8px 12px; text-align:center; width:115px;'>Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
