@@ -30,12 +30,12 @@ def build_interactive_position_chart(
     chart_height: int = 480
 ) -> alt.Chart:
     """
-    Build an ultra-reliable, crisp Altair scatter plot with:
-    - Headshot images overlaid onto coordinates
-    - Colored halo glow circle for fantasy owner identity
-    - Player name labels
+    Build a crisp, high-performance Altair scatter plot with:
+    - High-visibility scatter points color-coded by Fantasy Owner
+    - Player name labels beside each point
+    - Top owner color legend
     - Median reference dashed lines
-    - Full hover tooltips
+    - Full interactive hover tooltips
     """
     if pos_data.empty:
         return alt.Chart(pd.DataFrame()).mark_text()
@@ -44,11 +44,6 @@ def build_interactive_position_chart(
     owner_counts = df_plot['current_owner'].value_counts()
     df_plot['owner_legend_label'] = df_plot['current_owner'].apply(lambda o: f"{o} ({owner_counts.get(o, 0)})")
     df_plot['short_name'] = df_plot['player_name'].apply(_abbreviate_name)
-
-    # Clean URL fallback for missing headshots
-    df_plot['avatar_url'] = df_plot['headshot_url'].fillna(
-        'https://sleepercdn.com/images/v2/icons/player_default.webp'
-    )
 
     # Axis Domain Bounds with padding
     x_min = float(df_plot['mean_points'].min())
@@ -59,7 +54,7 @@ def build_interactive_position_chart(
     x_margin = max(2.0, (x_max - x_min) * 0.12)
     y_margin = max(1.5, (y_max - y_min) * 0.12)
 
-    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 2.5]
+    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 3.0]
     y_domain = [max(0.0, y_min - y_margin), y_max + y_margin]
 
     x_med = float(df_plot['mean_points'].median())
@@ -116,11 +111,12 @@ def build_interactive_position_chart(
         opacity=0.8
     ).encode(y=alt.Y('y:Q', scale=alt.Scale(domain=y_domain)))
 
-    # 2. Owner Halo Ring (Base Circle with Owner Color & Tooltip)
-    owner_halos = base.mark_point(
-        filled=True,
-        size=500,
-        opacity=0.9
+    # 2. Main Color Scatter Points with Owner Legend and Comprehensive Tooltip
+    scatter_points = base.mark_circle(
+        size=220,
+        opacity=0.92,
+        stroke='#ffffff',
+        strokeWidth=1.5
     ).encode(
         color=alt.Color(
             'owner_legend_label:N',
@@ -152,28 +148,20 @@ def build_interactive_position_chart(
         ]
     )
 
-    # 3. Player Headshot Images centered over points
-    player_images = base.mark_image(
-        width=24,
-        height=24
-    ).encode(
-        url='avatar_url:N'
-    )
-
-    # 4. Text Labels for Player Names
+    # 3. Text Labels for Player Names (e.g., "J. Allen", "P. Mahomes")
     player_labels = base.mark_text(
         align='left',
         baseline='middle',
-        dx=18,
+        dx=11,
         fontSize=10.5,
         fontWeight=600,
-        color='#1e293b',
+        color='#334155',
         opacity=0.95
     ).encode(
         text='short_name:N'
     )
 
-    chart = (rule_x + rule_y + owner_halos + player_images + player_labels).properties(
+    chart = (rule_x + rule_y + scatter_points + player_labels).properties(
         width=chart_width,
         height=chart_height
     ).configure_view(
