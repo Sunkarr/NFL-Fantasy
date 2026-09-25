@@ -32,5 +32,5 @@ crontab /etc/cron.d/fantasy-sync
 # Start cron daemon in background
 cron
 
-echo "🚀 Starting Marimo Dashboard on port ${PORT:-8501}..."
-exec python -m marimo run app.py --host 0.0.0.0 --port "${PORT:-8501}" --no-token
+echo "🚀 Starting Marimo Dashboard on internal port 8501..."
+exec python -m marimo run app.py --host 0.0.0.0 --port 8501 --no-token
