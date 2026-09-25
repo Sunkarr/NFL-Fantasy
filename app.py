@@ -308,14 +308,15 @@ def _(
                     }
                     return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
-                # Helper to build clean, proportional full-width HTML roster table
+                # Proportional, harmonious column widths:
+                # Slot: 6% | Photo: 4% | Player: 34% | Pos Rank: 8% | Mean FPTS: 11% | Consistency: 15% | Range: 11% | Status: 11%
                 def _render_roster_table(df_subset, title_label):
                     if df_subset.empty:
                         return mo.md(f"<em>No {title_label.lower()} found.</em>")
 
                     _rows_html = []
                     for _, _r_player in df_subset.iterrows():
-                        # Unified clean dot status badge
+                        # Status Dot Badge
                         _st = str(_r_player['injury_status']).strip()
                         if _st == 'Healthy':
                             _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Healthy</span>"
@@ -326,7 +327,7 @@ def _(
                         else:
                             _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>{_st}</span>"
 
-                        # Robust consistency classification based directly on std_points threshold
+                        # Consistency Dot Badge
                         _sd_val = float(_r_player['std_points']) if pd.notna(_r_player['std_points']) else 0.0
                         if _sd_val < 4.5:
                             _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Rock Solid <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
@@ -356,19 +357,19 @@ def _(
 
                         _row = f"""
                         <tr style='border-bottom: 1px solid #f1f5f9;'>
-                            <td style='padding:9px 10px; text-align:center; width:5%;'>{_slot_html}</td>
+                            <td style='padding:9px 8px; text-align:center; width:6%;'>{_slot_html}</td>
                             <td style='padding:9px 4px 9px 8px; width:4%; text-align:center;'>
                                 <img src='{_r_player['headshot_url']}' style='width:38px; height:38px; min-width:38px; min-height:38px; max-width:38px; max-height:38px; aspect-ratio:1/1; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block; margin:0 auto; box-sizing:border-box;' />
                             </td>
-                            <td style='padding:9px 16px 9px 8px; text-align:left; width:26%;'>
-                                <div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_r_player['player_name']}</div>
-                                <div style='font-size:0.75rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
+                            <td style='padding:9px 16px 9px 8px; text-align:left; width:34%;'>
+                                <div style='font-weight:700; font-size:0.9rem; color:#0f172a;'>{_r_player['player_name']}</div>
+                                <div style='font-size:0.76rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
                             </td>
-                            <td style='padding:9px 12px; text-align:center; width:8%;'>{_rank_badge}</td>
-                            <td style='padding:9px 16px; text-align:right; font-weight:700; font-size:0.9rem; color:#0f172a; width:10%;'>{_r_player['mean_points']:.2f}</td>
-                            <td style='padding:9px 16px; text-align:left; width:20%;'>{_cons_badge}</td>
-                            <td style='padding:9px 16px; text-align:right; color:#64748b; font-size:0.82rem; width:14%;'>{_range_str}</td>
-                            <td style='padding:9px 12px; text-align:center; width:13%;'>{_st_badge}</td>
+                            <td style='padding:9px 10px; text-align:center; width:8%;'>{_rank_badge}</td>
+                            <td style='padding:9px 14px; text-align:right; font-weight:700; font-size:0.92rem; color:#0f172a; width:11%;'>{_r_player['mean_points']:.2f}</td>
+                            <td style='padding:9px 12px; text-align:left; width:15%;'>{_cons_badge}</td>
+                            <td style='padding:9px 12px; text-align:right; color:#475569; font-size:0.82rem; width:11%;'>{_range_str}</td>
+                            <td style='padding:9px 10px; text-align:center; width:11%;'>{_st_badge}</td>
                         </tr>
                         """
                         _rows_html.append(_row)
@@ -381,17 +382,17 @@ def _(
                                 <span style='font-size:0.75rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{len(df_subset)} Players</span>
                             </div>
                             <div style='overflow-x:auto;'>
-                                <table style='width:100%; table-layout:auto; border-collapse:collapse; font-size:0.82rem;'>
+                                <table style='width:100%; border-collapse:collapse; font-size:0.82rem;'>
                                     <thead>
                                         <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'>
-                                            <th style='padding:9px 10px; text-align:center; width:5%;'>Slot</th>
+                                            <th style='padding:9px 8px; text-align:center; width:6%;'>Slot</th>
                                             <th style='padding:9px 4px 9px 8px; width:4%;'></th>
-                                            <th style='padding:9px 16px 9px 8px; text-align:left; width:26%;'>Player</th>
-                                            <th style='padding:9px 12px; text-align:center; width:8%;'>Pos Rank</th>
-                                            <th style='padding:9px 16px; text-align:right; width:10%;'>Mean FPTS</th>
-                                            <th style='padding:9px 16px; text-align:left; width:20%;'>Consistency (SD)</th>
-                                            <th style='padding:9px 16px; text-align:right; width:14%;'>Range (Min-Max)</th>
-                                            <th style='padding:9px 12px; text-align:center; width:13%;'>Status</th>
+                                            <th style='padding:9px 16px 9px 8px; text-align:left; width:34%;'>Player</th>
+                                            <th style='padding:9px 10px; text-align:center; width:8%;'>Pos Rank</th>
+                                            <th style='padding:9px 14px; text-align:right; width:11%;'>Mean FPTS</th>
+                                            <th style='padding:9px 12px; text-align:left; width:15%;'>Consistency (SD)</th>
+                                            <th style='padding:9px 12px; text-align:right; width:11%;'>Range (Min-Max)</th>
+                                            <th style='padding:9px 10px; text-align:center; width:11%;'>Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
