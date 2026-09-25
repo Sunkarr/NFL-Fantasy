@@ -215,8 +215,8 @@ def _(
                 pos_data=_filtered_pos,
                 unique_teams=unique_teams,
                 owner_colors=owner_colors,
-                chart_width=780,
-                chart_height=480
+                chart_width=880,
+                chart_height=520
             )
 
         _view = mo.vstack([_content, _fixed_corner_badge], gap=1)
@@ -308,32 +308,42 @@ def _(
                     }
                     return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
-                # Helper to build clean HTML roster table with perfectly aligned 1-line status badges
+                # Helper to build clean, proportional full-width HTML roster table
                 def _render_roster_table(df_subset, title_label):
                     if df_subset.empty:
                         return mo.md(f"<em>No {title_label.lower()} found.</em>")
 
                     _rows_html = []
                     for _, _r_player in df_subset.iterrows():
-                        # Injury status badge with clean non-breaking inline layout
+                        # Unified clean dot status badge
                         _st = str(_r_player['injury_status']).strip()
                         if _st == 'Healthy':
-                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#16a34a; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Healthy</span>"
+                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Healthy</span>"
                         elif _st in ['Questionable', 'Doubtful']:
-                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#b45309; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>{_st}</span>"
+                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#b45309; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>{_st}</span>"
                         elif _st == 'NA':
-                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#64748b; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#94a3b8;'></span>Out</span>"
+                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#64748b; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#94a3b8;'></span>Out</span>"
                         else:
-                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:5px; color:#dc2626; font-weight:600; font-size:0.75rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>{_st}</span>"
+                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>{_st}</span>"
+
+                        # Consistency styling matching clean dot aesthetic
+                        _cons_tier = _r_player['consistency_tier']
+                        _sd_val = _r_player['std_points']
+                        if _cons_tier == 'Rock Solid':
+                            _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Rock Solid <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
+                        elif _cons_tier == 'Moderate':
+                            _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#b45309; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>Moderate <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
+                        else:
+                            _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>Boom / Bust <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
 
                         # Positional rank badge
                         _rank_num = _r_player['pos_rank']
                         if _rank_num <= 3:
-                            _rank_badge = f"<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:6px; padding:2px 7px; font-size:0.75rem; font-weight:700;'>#{_rank_num}</span>"
+                            _rank_badge = f"<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:6px; padding:2px 8px; font-size:0.76rem; font-weight:700;'>#{_rank_num}</span>"
                         elif _rank_num <= 10:
-                            _rank_badge = f"<span style='background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; border-radius:6px; padding:2px 7px; font-size:0.75rem; font-weight:700;'>#{_rank_num}</span>"
+                            _rank_badge = f"<span style='background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; border-radius:6px; padding:2px 8px; font-size:0.76rem; font-weight:700;'>#{_rank_num}</span>"
                         else:
-                            _rank_badge = f"<span style='color:#94a3b8; font-size:0.75rem;'>#{_rank_num}</span>"
+                            _rank_badge = f"<span style='color:#94a3b8; font-size:0.76rem;'>#{_rank_num}</span>"
 
                         _slot_html = _get_slot_badge(_r_player.get('slot', 'BN'))
 
@@ -347,42 +357,42 @@ def _(
 
                         _row = f"""
                         <tr style='border-bottom: 1px solid #f1f5f9;'>
-                            <td style='padding:8px 8px; text-align:center; width:52px;'>{_slot_html}</td>
-                            <td style='padding:8px 4px 8px 8px; width:48px; min-width:48px; max-width:48px; text-align:center;'>
-                                <img src='{_r_player['headshot_url']}' style='width:36px; height:36px; min-width:36px; min-height:36px; max-width:36px; max-height:36px; aspect-ratio:1/1; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block; margin:0 auto; box-sizing:border-box;' />
+                            <td style='padding:9px 10px; text-align:center; width:5%;'>{_slot_html}</td>
+                            <td style='padding:9px 4px 9px 8px; width:4%; text-align:center;'>
+                                <img src='{_r_player['headshot_url']}' style='width:38px; height:38px; min-width:38px; min-height:38px; max-width:38px; max-height:38px; aspect-ratio:1/1; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block; margin:0 auto; box-sizing:border-box;' />
                             </td>
-                            <td style='padding:8px 12px 8px 6px; text-align:left;'>
-                                <div style='font-weight:700; font-size:0.86rem; color:#0f172a;'>{_r_player['player_name']}</div>
-                                <div style='font-size:0.74rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
+                            <td style='padding:9px 16px 9px 8px; text-align:left; width:26%;'>
+                                <div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_r_player['player_name']}</div>
+                                <div style='font-size:0.75rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
                             </td>
-                            <td style='padding:8px 12px; text-align:center; width:75px;'>{_rank_badge}</td>
-                            <td style='padding:8px 12px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a; width:85px;'>{_r_player['mean_points']:.2f}</td>
-                            <td style='padding:8px 12px; text-align:left; font-size:0.78rem; width:150px;'>{_r_player['consistency_tier']} <span style='color:#94a3b8; font-size:0.72rem;'>({_r_player['std_points']:.2f})</span></td>
-                            <td style='padding:8px 12px; text-align:right; color:#64748b; font-size:0.78rem; width:110px;'>{_range_str}</td>
-                            <td style='padding:8px 12px; text-align:center; width:115px;'>{_st_badge}</td>
+                            <td style='padding:9px 12px; text-align:center; width:8%;'>{_rank_badge}</td>
+                            <td style='padding:9px 16px; text-align:right; font-weight:700; font-size:0.9rem; color:#0f172a; width:10%;'>{_r_player['mean_points']:.2f}</td>
+                            <td style='padding:9px 16px; text-align:left; width:20%;'>{_cons_badge}</td>
+                            <td style='padding:9px 16px; text-align:right; color:#64748b; font-size:0.82rem; width:14%;'>{_range_str}</td>
+                            <td style='padding:9px 12px; text-align:center; width:13%;'>{_st_badge}</td>
                         </tr>
                         """
                         _rows_html.append(_row)
 
                     return mo.md(
                         f"""
-                        <div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; margin-bottom:16px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.02);'>
+                        <div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; margin-bottom:16px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.02); width:100%;'>
                             <div style='background:#f8fafc; padding:10px 16px; font-weight:700; font-size:0.88rem; color:#1e293b; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'>
                                 <span>{title_label}</span>
                                 <span style='font-size:0.75rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{len(df_subset)} Players</span>
                             </div>
                             <div style='overflow-x:auto;'>
-                                <table style='width:100%; border-collapse:collapse; font-size:0.82rem;'>
+                                <table style='width:100%; table-layout:auto; border-collapse:collapse; font-size:0.82rem;'>
                                     <thead>
                                         <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'>
-                                            <th style='padding:8px 8px; text-align:center; width:52px;'>Slot</th>
-                                            <th style='padding:8px 4px 8px 8px; width:48px; min-width:48px; max-width:48px;'></th>
-                                            <th style='padding:8px 12px 8px 6px; text-align:left;'>Player</th>
-                                            <th style='padding:8px 12px; text-align:center; width:75px;'>Pos Rank</th>
-                                            <th style='padding:8px 12px; text-align:right; width:85px;'>Mean FPTS</th>
-                                            <th style='padding:8px 12px; text-align:left; width:150px;'>Consistency (SD)</th>
-                                            <th style='padding:8px 12px; text-align:right; width:110px;'>Range (Min-Max)</th>
-                                            <th style='padding:8px 12px; text-align:center; width:115px;'>Status</th>
+                                            <th style='padding:9px 10px; text-align:center; width:5%;'>Slot</th>
+                                            <th style='padding:9px 4px 9px 8px; width:4%;'></th>
+                                            <th style='padding:9px 16px 9px 8px; text-align:left; width:26%;'>Player</th>
+                                            <th style='padding:9px 12px; text-align:center; width:8%;'>Pos Rank</th>
+                                            <th style='padding:9px 16px; text-align:right; width:10%;'>Mean FPTS</th>
+                                            <th style='padding:9px 16px; text-align:left; width:20%;'>Consistency (SD)</th>
+                                            <th style='padding:9px 16px; text-align:right; width:14%;'>Range (Min-Max)</th>
+                                            <th style='padding:9px 12px; text-align:center; width:13%;'>Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -397,7 +407,7 @@ def _(
                 _view = mo.vstack([
                     _kpi_box,
                     _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
-                    _render_roster_table(_t['bench_df'], "🪵 Bench"),
+                    _render_roster_table(_t['bench_df'], "🪑 Bench"),
                     _fixed_corner_badge
                 ], gap=1)
 
@@ -433,7 +443,7 @@ def _(
             )
             _card_bench = mo.stat(
                 value=f"{_league_an['deepest_bench_team']['team_name']}",
-                label="🪵 Deepest Bench",
+                label="🪑 Deepest Bench",
                 caption=f"{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG"
             )
 

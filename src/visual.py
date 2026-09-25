@@ -26,16 +26,16 @@ def build_interactive_position_chart(
     pos_data: pd.DataFrame,
     unique_teams: List[str],
     owner_colors: Dict[str, str],
-    chart_width: int = 760,
-    chart_height: int = 460
+    chart_width: int = 860,
+    chart_height: int = 500
 ) -> alt.Chart:
     """
     Build a crisp, high-performance Altair scatter plot with:
-    - Visible fantasy owner color legend at the top
-    - Clear player name callouts next to points
+    - Real player headshots on the scatter coordinates
+    - Colored fantasy owner aura halos around avatars
+    - Visible fantasy owner color legend
     - Median reference dashed lines
     - Comprehensive hover tooltips
-    - Sub-5ms rendering speed
     """
     if pos_data.empty:
         return alt.Chart(pd.DataFrame()).mark_text()
@@ -44,6 +44,7 @@ def build_interactive_position_chart(
     owner_counts = df_plot['current_owner'].value_counts()
     df_plot['owner_legend_label'] = df_plot['current_owner'].apply(lambda o: f"{o} ({owner_counts.get(o, 0)})")
     df_plot['short_name'] = df_plot['player_name'].apply(_abbreviate_name)
+    df_plot['owner_color'] = df_plot['current_owner'].apply(lambda o: owner_colors.get(o, FREE_AGENT_COLOR))
 
     # Axis Domain Bounds with padding
     x_min = float(df_plot['mean_points'].min())
@@ -54,7 +55,7 @@ def build_interactive_position_chart(
     x_margin = max(2.0, (x_max - x_min) * 0.12)
     y_margin = max(1.5, (y_max - y_min) * 0.12)
 
-    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 2.0]
+    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 2.5]
     y_domain = [max(0.0, y_min - y_margin), y_max + y_margin]
 
     x_med = float(df_plot['mean_points'].median())
@@ -68,7 +69,7 @@ def build_interactive_position_chart(
     domain_labels = [f"{o} ({owner_counts.get(o, 0)})" for o in ordered_owners]
     range_colors = [owner_colors.get(o, FREE_AGENT_COLOR) for o in ordered_owners]
 
-    # Base chart with shared encodings
+    # Shared encodings
     base = alt.Chart(df_plot).encode(
         x=alt.X(
             'mean_points:Q',
@@ -111,12 +112,10 @@ def build_interactive_position_chart(
         opacity=0.8
     ).encode(y=alt.Y('y:Q', scale=alt.Scale(domain=y_domain)))
 
-    # 2. Main Player Scatter Dots with Color Legend
-    scatter_dots = base.mark_circle(
-        size=170,
-        opacity=0.9,
-        stroke='#ffffff',
-        strokeWidth=1.5
+    # 2. Owner Color Halos behind Headshots
+    owner_halos = base.mark_circle(
+        size=420,
+        opacity=0.9
     ).encode(
         color=alt.Color(
             'owner_legend_label:N',
@@ -131,7 +130,15 @@ def build_interactive_position_chart(
                 columns=4,
                 labelLimit=250
             )
-        ),
+        )
+    )
+
+    # 3. Headshot Avatars
+    player_images = base.mark_image(
+        width=26,
+        height=26
+    ).encode(
+        url='headshot_url:N',
         tooltip=[
             alt.Tooltip('player_name:N', title='Player'),
             alt.Tooltip('position:N', title='Position'),
@@ -148,20 +155,20 @@ def build_interactive_position_chart(
         ]
     )
 
-    # 3. Text Labels for Player Names (Clean readable labels beside each point)
+    # 4. Text Labels for Player Names
     player_labels = base.mark_text(
         align='left',
         baseline='middle',
-        dx=9,
-        fontSize=10,
+        dx=16,
+        fontSize=10.5,
         fontWeight=600,
-        color='#334155',
+        color='#1e293b',
         opacity=0.95
     ).encode(
         text='short_name:N'
     )
 
-    chart = (rule_x + rule_y + scatter_dots + player_labels).properties(
+    chart = (rule_x + rule_y + owner_halos + player_images + player_labels).properties(
         width=chart_width,
         height=chart_height
     ).configure_view(
