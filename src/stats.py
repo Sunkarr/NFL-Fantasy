@@ -141,8 +141,8 @@ def get_team_roster_analytics(
     pos_breakdown = starters_df.groupby('position')['mean_points'].sum().to_dict() if not starters_df.empty else {}
 
     # Top-10 Elite assets
-    top_10_count = int((merged['pos_rank'] <= 10).sum())
-    top_5_count = int((merged['pos_rank'] <= 5).sum())
+    top_10_count = int((merged['pos_rank'] <= 10).sum() if not merged.empty else 0)
+    top_5_count = int((merged['pos_rank'] <= 5).sum() if not merged.empty else 0)
 
     # Injury count
     injured_count = sum(merged['injury_status'].isin(['Questionable', 'Out', 'IR', 'PUP', 'Doubtful', 'DNR']))
@@ -177,12 +177,15 @@ def get_league_overview_analytics(
     - Points For (PF), Points Against (PA), Point Differential (+/-)
     - Starter PPG, Bench Depth PPG, Top-10 Elite Asset Counts, Roster Health
     - Composite Power Rating
-    - League summary KPIs (Starter PPG average, not including bench)
+    - League summary KPIs (Actual league average PF per team/week & current starter projection)
     """
     if df_teams is None or df_teams.empty:
         return {}
 
     standings = []
+    total_pf_sum = 0.0
+    total_games_sum = 0
+
     for idx, r in df_teams.reset_index(drop=True).iterrows():
         t_name = r['team_name']
         an = get_team_roster_analytics(t_name, df_rosters, df_player_stats, df_teams)
@@ -191,6 +194,9 @@ def get_league_overview_analytics(
         diff = round(pf - pa, 2)
         total_games = max(1, r['wins'] + r['losses'])
         win_pct = round(r['wins'] / total_games, 3)
+
+        total_pf_sum += pf
+        total_games_sum += total_games
 
         # Composite Power Score (0 - 100)
         # 40% Win %, 35% Starter PPG relative, 25% Total PF relative
@@ -217,8 +223,9 @@ def get_league_overview_analytics(
 
     df_standings = pd.DataFrame(standings)
 
-    # League-level highlights (starter ppg average across league, no bench)
-    avg_starter_ppg = round(df_standings['starter_ppg'].mean(), 1)
+    # Actual historical average scored per team/week (e.g. 1654.98 / 12 = 137.9 FPTS)
+    actual_league_avg_ppg = round(total_pf_sum / max(1, total_games_sum), 1)
+    
     leader_team = df_standings.iloc[0]
     high_pf_team = df_standings.sort_values(by='pf', ascending=False).iloc[0]
     tough_sched_team = df_standings.sort_values(by='pa', ascending=False).iloc[0]
@@ -226,7 +233,7 @@ def get_league_overview_analytics(
 
     return {
         'standings_df': df_standings,
-        'avg_starter_ppg': avg_starter_ppg,
+        'avg_starter_ppg': actual_league_avg_ppg,
         'leader_team': leader_team,
         'high_pf_team': high_pf_team,
         'tough_sched_team': tough_sched_team,
