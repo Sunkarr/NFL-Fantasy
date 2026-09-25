@@ -17,23 +17,31 @@ def _():
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.visual import build_interactive_position_chart, get_owner_color_map
 
-    # Force 🏈 Favicon and override Marimo default tab icon dynamically
+    # Lightweight observer: update document title & link icon without busy polling loop
     head_favicon = mo.Html(
         """
         <script>
         (function() {
             function setFavicon() {
+                document.title = "🏈 NFL Fantasy Analytics";
                 var link = document.querySelector("link[rel*='icon']");
                 if (!link) {
                     link = document.createElement('link');
                     link.rel = 'shortcut icon';
                     document.getElementsByTagName('head')[0].appendChild(link);
                 }
-                link.type = 'image/svg+xml';
-                link.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🏈</text></svg>';
+                if (link.getAttribute('href') !== 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🏈</text></svg>') {
+                    link.type = 'image/svg+xml';
+                    link.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🏈</text></svg>';
+                }
             }
-            setFavicon();
-            setInterval(setFavicon, 1000);
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setFavicon);
+            } else {
+                setFavicon();
+            }
+            setTimeout(setFavicon, 1000);
+            setTimeout(setFavicon, 3000);
         })();
         </script>
         """
