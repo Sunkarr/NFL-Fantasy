@@ -326,12 +326,11 @@ def _(
                         else:
                             _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>{_st}</span>"
 
-                        # Consistency styling matching clean dot aesthetic
-                        _cons_tier = _r_player['consistency_tier']
-                        _sd_val = _r_player['std_points']
-                        if _cons_tier == 'Rock Solid':
+                        # Robust consistency classification based directly on std_points threshold
+                        _sd_val = float(_r_player['std_points']) if pd.notna(_r_player['std_points']) else 0.0
+                        if _sd_val < 4.5:
                             _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Rock Solid <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
-                        elif _cons_tier == 'Moderate':
+                        elif _sd_val < 9.0:
                             _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#b45309; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>Moderate <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
                         else:
                             _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>Boom / Bust <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"

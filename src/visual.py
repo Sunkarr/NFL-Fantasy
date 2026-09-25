@@ -27,15 +27,15 @@ def build_interactive_position_chart(
     unique_teams: List[str],
     owner_colors: Dict[str, str],
     chart_width: int = 860,
-    chart_height: int = 500
+    chart_height: int = 480
 ) -> alt.Chart:
     """
-    Build a crisp, high-performance Altair scatter plot with:
-    - Real player headshots on the scatter coordinates
-    - Colored fantasy owner aura halos around avatars
-    - Visible fantasy owner color legend
+    Build an ultra-reliable, crisp Altair scatter plot with:
+    - Headshot images overlaid onto coordinates
+    - Colored halo glow circle for fantasy owner identity
+    - Player name labels
     - Median reference dashed lines
-    - Comprehensive hover tooltips
+    - Full hover tooltips
     """
     if pos_data.empty:
         return alt.Chart(pd.DataFrame()).mark_text()
@@ -44,7 +44,11 @@ def build_interactive_position_chart(
     owner_counts = df_plot['current_owner'].value_counts()
     df_plot['owner_legend_label'] = df_plot['current_owner'].apply(lambda o: f"{o} ({owner_counts.get(o, 0)})")
     df_plot['short_name'] = df_plot['player_name'].apply(_abbreviate_name)
-    df_plot['owner_color'] = df_plot['current_owner'].apply(lambda o: owner_colors.get(o, FREE_AGENT_COLOR))
+
+    # Clean URL fallback for missing headshots
+    df_plot['avatar_url'] = df_plot['headshot_url'].fillna(
+        'https://sleepercdn.com/images/v2/icons/player_default.webp'
+    )
 
     # Axis Domain Bounds with padding
     x_min = float(df_plot['mean_points'].min())
@@ -69,7 +73,7 @@ def build_interactive_position_chart(
     domain_labels = [f"{o} ({owner_counts.get(o, 0)})" for o in ordered_owners]
     range_colors = [owner_colors.get(o, FREE_AGENT_COLOR) for o in ordered_owners]
 
-    # Shared encodings
+    # Shared base chart
     base = alt.Chart(df_plot).encode(
         x=alt.X(
             'mean_points:Q',
@@ -112,9 +116,10 @@ def build_interactive_position_chart(
         opacity=0.8
     ).encode(y=alt.Y('y:Q', scale=alt.Scale(domain=y_domain)))
 
-    # 2. Owner Color Halos behind Headshots
-    owner_halos = base.mark_circle(
-        size=420,
+    # 2. Owner Halo Ring (Base Circle with Owner Color & Tooltip)
+    owner_halos = base.mark_point(
+        filled=True,
+        size=500,
         opacity=0.9
     ).encode(
         color=alt.Color(
@@ -130,15 +135,7 @@ def build_interactive_position_chart(
                 columns=4,
                 labelLimit=250
             )
-        )
-    )
-
-    # 3. Headshot Avatars
-    player_images = base.mark_image(
-        width=26,
-        height=26
-    ).encode(
-        url='headshot_url:N',
+        ),
         tooltip=[
             alt.Tooltip('player_name:N', title='Player'),
             alt.Tooltip('position:N', title='Position'),
@@ -155,11 +152,19 @@ def build_interactive_position_chart(
         ]
     )
 
+    # 3. Player Headshot Images centered over points
+    player_images = base.mark_image(
+        width=24,
+        height=24
+    ).encode(
+        url='avatar_url:N'
+    )
+
     # 4. Text Labels for Player Names
     player_labels = base.mark_text(
         align='left',
         baseline='middle',
-        dx=16,
+        dx=18,
         fontSize=10.5,
         fontWeight=600,
         color='#1e293b',
