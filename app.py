@@ -72,7 +72,7 @@ def _(mo):
         "📊 Position Scatter": mo.md("")
     })
     nav_tabs
-    return (nav_tabs,)
+    return (nav_tabs, subterranean_version_footer := lambda: None)
 
 
 @app.cell
@@ -144,6 +144,26 @@ def _(
     team_dropdown,
     unique_teams,
 ):
+    # Footer component with git commit / version badge
+    import subprocess
+    try:
+        _git_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        _git_sha = "v1.2.0"
+
+    _footer_html = mo.md(
+        f"""
+        <div style='display:flex; justify-content:space-between; align-items:center; margin-top:28px; padding-top:12px; border-top:1px solid #f1f5f9; color:#94a3b8; font-size:0.75rem; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'>
+            <div>⚡ <strong>NFL Fantasy Analytics</strong> • Auto-sync 09:00 & 18:30 CET</div>
+            <div style='display:flex; align-items:center; gap:8px;'>
+                <span style='display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e;'></span>
+                <span>Live on Azure Cloud</span>
+                <span style='background:#f1f5f9; color:#475569; padding:2px 7px; border-radius:6px; font-family:monospace; font-weight:600;'>{_git_sha}</span>
+            </div>
+        </div>
+        """
+    )
+
     if nav_tabs.value == "📊 Position Scatter":
         _pos_code = pos_select.value if pos_select else "QB"
         _min_pts = min_pts_slider.value if min_pts_slider else 3
@@ -155,15 +175,17 @@ def _(
         ].sort_values(by='mean_points', ascending=False).head(_top_limit).copy()
 
         if _filtered_pos.empty:
-            _view = mo.md("No players match the current criteria.")
+            _content = mo.md("No players match the current criteria.")
         else:
-            _view = build_interactive_position_chart(
+            _content = build_interactive_position_chart(
                 pos_data=_filtered_pos,
                 unique_teams=unique_teams,
                 owner_colors=owner_colors,
                 chart_width=780,
                 chart_height=480
             )
+
+        _view = mo.vstack([_content, _footer_html], gap=1)
 
     elif nav_tabs.value == "🛡️ Team Analytics":
         if team_dropdown is None or not team_dropdown.value:
@@ -331,7 +353,8 @@ def _(
                 _view = mo.vstack([
                     _kpi_box,
                     _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
-                    _render_roster_table(_t['bench_df'], "🪑 Bench")
+                    _render_roster_table(_t['bench_df'], "🪵 Bench"),
+                    _footer_html
                 ], gap=1)
 
     else:
@@ -366,7 +389,7 @@ def _(
             )
             _card_bench = mo.stat(
                 value=f"{_league_an['deepest_bench_team']['team_name']}",
-                label="🪑 Deepest Bench",
+                label="🪵 Deepest Bench",
                 caption=f"{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG"
             )
 
@@ -465,7 +488,8 @@ def _(
 
             _view = mo.vstack([
                 mo.hstack([_card_leader, _card_avg, _card_top_scorer, _card_toughest, _card_bench], justify="start", gap=2),
-                _standings_table
+                _standings_table,
+                _footer_html
             ], gap=1)
 
     _view
