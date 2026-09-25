@@ -1,7 +1,12 @@
 import marimo
 
 __generated_with = "0.24.2"
-app = marimo.App(width="full")
+app = marimo.App(
+    width="full",
+    app_title="NFL Fantasy Analytics",
+    html_head_mode="append",
+    css_file=None,
+)
 
 
 @app.cell
@@ -14,9 +19,18 @@ def _():
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.visual import build_interactive_position_chart, get_owner_color_map
 
+    # Inject Favicon & Dynamic Styles
+    _head_inject = mo.Html(
+        """
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏈</text></svg>">
+        <title>🏈 NFL Fantasy Analytics</title>
+        """
+    )
+
     return (
         DB_PATH,
         DEFAULT_LEAGUE_ID,
+        _head_inject,
         build_interactive_position_chart,
         compute_player_aggregates,
         get_league_overview_analytics,
@@ -25,6 +39,12 @@ def _():
         load_league_data,
         mo,
     )
+
+
+@app.cell
+def _(_head_inject):
+    _head_inject
+    return
 
 
 @app.cell
@@ -72,7 +92,7 @@ def _(mo):
         "📊 Position Scatter": mo.md("")
     })
     nav_tabs
-    return (nav_tabs, subterranean_version_footer := lambda: None)
+    return (nav_tabs,)
 
 
 @app.cell
@@ -144,22 +164,21 @@ def _(
     team_dropdown,
     unique_teams,
 ):
-    # Footer component with git commit / version badge
+    # Elegant persistent bottom right corner badge + full footer
     import subprocess
     try:
         _git_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     except Exception:
         _git_sha = "v1.2.0"
 
-    _footer_html = mo.md(
+    _fixed_corner_badge = mo.Html(
         f"""
-        <div style='display:flex; justify-content:space-between; align-items:center; margin-top:28px; padding-top:12px; border-top:1px solid #f1f5f9; color:#94a3b8; font-size:0.75rem; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'>
-            <div>⚡ <strong>NFL Fantasy Analytics</strong> • Auto-sync 09:00 & 18:30 CET</div>
-            <div style='display:flex; align-items:center; gap:8px;'>
-                <span style='display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e;'></span>
-                <span>Live on Azure Cloud</span>
-                <span style='background:#f1f5f9; color:#475569; padding:2px 7px; border-radius:6px; font-family:monospace; font-weight:600;'>{_git_sha}</span>
-            </div>
+        <div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.75rem; color: #475569;">
+            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);"></span>
+            <span style="font-weight: 600; color: #0f172a;">Live</span>
+            <span style="color: #cbd5e1;">|</span>
+            <span style="background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-weight: 700;">{_git_sha}</span>
+            <span style="color: #94a3b8; font-size: 0.7rem;">(09:00 / 18:30 CET)</span>
         </div>
         """
     )
@@ -185,7 +204,7 @@ def _(
                 chart_height=480
             )
 
-        _view = mo.vstack([_content, _footer_html], gap=1)
+        _view = mo.vstack([_content, _fixed_corner_badge], gap=1)
 
     elif nav_tabs.value == "🛡️ Team Analytics":
         if team_dropdown is None or not team_dropdown.value:
@@ -354,7 +373,7 @@ def _(
                     _kpi_box,
                     _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
                     _render_roster_table(_t['bench_df'], "🪵 Bench"),
-                    _footer_html
+                    _fixed_corner_badge
                 ], gap=1)
 
     else:
@@ -489,7 +508,7 @@ def _(
             _view = mo.vstack([
                 mo.hstack([_card_leader, _card_avg, _card_top_scorer, _card_toughest, _card_bench], justify="start", gap=2),
                 _standings_table,
-                _footer_html
+                _fixed_corner_badge
             ], gap=1)
 
     _view
