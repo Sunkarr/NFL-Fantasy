@@ -398,7 +398,10 @@ def _(
                                             <th style='padding:9px 10px; text-align:center; width:8%;'>Pos Rank</th>
                                             <th style='padding:9px 14px; text-align:right; width:11%;'>Mean FPTS</th>
                                             <th style='padding:9px 12px; text-align:left; width:15%;'>Consistency (SD)</th>
-                                            <th style='padding:9px 12px; text-align:right; width:11%;'>Range (Min-Max)</th>
+                                            <th style='padding:9px 12px; text-align:right; width:11%; line-height:1.2;'>
+                                                <div style='font-weight:700; color:#475569;'>Range</div>
+                                                <div style='font-size:0.68rem; color:#94a3b8; font-weight:normal; text-transform:none;'>Min – Max</div>
+                                            </th>
                                             <th style='padding:9px 10px; text-align:center; width:11%;'>Status</th>
                                         </tr>
                                     </thead>
