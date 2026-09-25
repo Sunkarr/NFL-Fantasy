@@ -1,12 +1,26 @@
 services:
+  caddy:
+    image: caddy:alpine
+    container_name: nfl-fantasy-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command: caddy reverse-proxy --from https://nfl-fantasy-jonas.belgiumcentral.cloudapp.azure.com --to fantasy-dashboard:8501
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - fantasy-dashboard
+
   fantasy-dashboard:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: nfl-fantasy-dashboard
     restart: unless-stopped
-    ports:
-      - "80:8501"
+    expose:
+      - "8501"
     environment:
       - LEAGUE_ID=1390344846723543040
       - TEAM_NAME=wetschproblem
@@ -16,3 +30,7 @@ services:
       - ./src:/app/src
       - ./app.py:/app/app.py
       - ./scripts:/app/scripts
+
+volumes:
+  caddy_data:
+  caddy_config:

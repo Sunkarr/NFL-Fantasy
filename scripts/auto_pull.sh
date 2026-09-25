@@ -15,6 +15,6 @@ REMOTE=$(git rev-parse origin/main)
 if [ "$LOCAL" != "$REMOTE" ]; then
     echo "[$(date)] 🚀 New commit detected! Updating from $LOCAL to $REMOTE..." >> "$LOG_FILE"
     git pull origin main >> "$LOG_FILE" 2>&1
-    sudo docker restart nfl-fantasy-dashboard >> "$LOG_FILE" 2>&1
-    echo "[$(date)] ✅ Code updated and dashboard restarted in 2 seconds." >> "$LOG_FILE"
+    sudo docker compose up -d --remove-orphans >> "$LOG_FILE" 2>&1
+    echo "[$(date)] ✅ Code updated and compose services deployed." >> "$LOG_FILE"
 fi
