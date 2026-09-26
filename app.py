@@ -13,7 +13,7 @@ def _():
     import pandas as pd
 
     from src.config import DB_PATH, DEFAULT_LEAGUE_ID, VERSION
-    from src.db import load_league_data
+    from src.db import format_last_sync, get_last_sync_time, load_league_data
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.visual import build_interactive_position_chart, get_owner_color_map
 
@@ -53,6 +53,8 @@ def _():
         VERSION,
         build_interactive_position_chart,
         compute_player_aggregates,
+        format_last_sync,
+        get_last_sync_time,
         get_league_overview_analytics,
         get_owner_color_map,
         get_team_roster_analytics,
@@ -170,11 +172,14 @@ def _(df_teams, mo, nav_tabs):
 
 @app.cell
 def _(
+    DB_PATH,
     VERSION,
     build_interactive_position_chart,
     df_current_rosters,
     df_player_stats,
     df_teams,
+    format_last_sync,
+    get_last_sync_time,
     get_league_overview_analytics,
     get_team_roster_analytics,
     limit_slider,
@@ -193,7 +198,15 @@ def _(
     except Exception:
         _git_sha = "latest"
 
-    # Fixed Floating Bottom-Right Corner Badge with Version
+    # Retrieve last data fetch timestamp
+    _last_dt = get_last_sync_time(DB_PATH)
+    _last_fetch_str = format_last_sync(_last_dt)
+    _last_fetch_title = (
+        f"Schedule: Every 30 min (:00 & :30) | Last DB sync: {_last_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+        if _last_dt else "Schedule: Every 30 min (:00 & :30)"
+    )
+
+    # Fixed Floating Bottom-Right Corner Badge with Version & Last Fetch
     _fixed_corner_badge = mo.Html(
         f"""
         <div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.76rem; color: #475569;">
@@ -201,7 +214,8 @@ def _(
             <span style="font-weight: 700; color: #0f172a;">v{VERSION}</span>
             <span style="color: #cbd5e1;">•</span>
             <span style="background: #f1f5f9; color: #334155; padding: 2px 7px; border-radius: 5px; font-family: monospace; font-weight: 700; font-size: 0.72rem;">{_git_sha}</span>
-            <span style="color: #94a3b8; font-size: 0.7rem;">(09:00 / 18:30 CET)</span>
+            <span style="color: #cbd5e1;">•</span>
+            <span style="color: #64748b; font-size: 0.72rem; cursor: help;" title="{_last_fetch_title}">Last data fetch: {_last_fetch_str}</span>
         </div>
         """
     )
@@ -417,7 +431,7 @@ def _(
                 _view = mo.vstack([
                     _kpi_box,
                     _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
-                    _render_roster_table(_t['bench_df'], "🪑 Bench"),
+                    _render_roster_table(_t['bench_df'], "🪵 Bench"),
                     _fixed_corner_badge
                 ], gap=1)
 
@@ -455,7 +469,7 @@ def _(
                         <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['tough_sched_team']['pa']:.1f} Points Against</div>
                     </div>
                     <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🪑 Deepest Bench</div>
+                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🪵 Deepest Bench</div>
                         <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['deepest_bench_team']['team_name']}</div>
                         <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG</div>
                     </div>

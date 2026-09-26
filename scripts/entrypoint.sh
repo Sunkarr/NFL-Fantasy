@@ -13,7 +13,8 @@ if [ ! -f /app/data/fantasy.db ]; then
     python -m src.sync --mode full || true
 fi
 
-echo "📅 Setting up sync schedule (09:00 & 18:30 CET)..."
+SYNC_CRON=${SYNC_CRON:-"0,30 * * * *"}
+echo "📅 Setting up sync schedule (${SYNC_CRON} - every 30 mins: :00 & :30)..."
 
 # Write crontab file with environment variables preserved
 cat <<EOF > /etc/cron.d/fantasy-sync
@@ -22,8 +23,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LEAGUE_ID=${LEAGUE_ID}
 TEAM_NAME=${TEAM_NAME}
 DATA_DIR=/app/data
-0 9 * * * root /usr/local/bin/python -m src.sync >> /app/data/cron.log 2>&1
-30 18 * * * root /usr/local/bin/python -m src.sync >> /app/data/cron.log 2>&1
+${SYNC_CRON} root /usr/local/bin/python -m src.sync >> /app/data/cron.log 2>&1
 EOF
 
 chmod 0644 /etc/cron.d/fantasy-sync

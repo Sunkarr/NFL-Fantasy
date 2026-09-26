@@ -1,4 +1,5 @@
 import sqlite3
+import datetime
 from pathlib import Path
 from typing import Tuple, Optional
 import pandas as pd
@@ -95,8 +96,101 @@ def init_db(db_path: Path = DB_PATH):
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS sync_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+
     conn.commit()
     conn.close()
+
+
+def set_sync_metadata(key: str, value: str, db_path: Path = DB_PATH) -> None:
+    """Set or update key-value pair in sync_metadata table."""
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+
+def get_sync_metadata(key: str, db_path: Path = DB_PATH) -> Optional[str]:
+    """Retrieve value for key from sync_metadata table, or None if table or key doesn't exist."""
+    if not db_path.exists():
+        return None
+    try:
+        conn = get_connection(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except sqlite3.OperationalError:
+        return None
+
+
+def get_last_sync_time(db_path: Path = DB_PATH) -> Optional[datetime.datetime]:
+    """
+    Retrieve the timestamp of the last data sync.
+    Checks:
+    1. sync_metadata table ('last_sync')
+    2. MAX(updated_at) across teams/current_rosters
+    3. File modification timestamp of fantasy.db
+    """
+    if not db_path.exists():
+        return None
+
+    # 1. Try sync_metadata
+    val = get_sync_metadata("last_sync", db_path)
+    if val:
+        try:
+            return datetime.datetime.fromisoformat(val)
+        except Exception:
+            pass
+
+    # 2. Try MAX(updated_at) from teams or current_rosters
+    try:
+        conn = get_connection(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(updated_at) FROM teams")
+        row = cur.fetchone()
+        if not row or not row[0]:
+            cur.execute("SELECT MAX(updated_at) FROM current_rosters")
+            row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            try:
+                return datetime.datetime.fromisoformat(row[0])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 3. Fallback to file mtime
+    try:
+        mtime = db_path.stat().st_mtime
+        return datetime.datetime.fromtimestamp(mtime)
+    except Exception:
+        return None
+
+
+def format_last_sync(dt: Optional[datetime.datetime]) -> str:
+    """Format last sync datetime into a concise human-friendly string for UI display."""
+    if not dt:
+        return "N/A"
+
+    now = datetime.datetime.now()
+    if dt.date() == now.date():
+        return dt.strftime("%H:%M")
+    elif (now.date() - dt.date()).days == 1:
+        return f"Yesterday, {dt.strftime('%H:%M')}"
+    elif dt.year == now.year:
+        return dt.strftime("%d.%m. %H:%M")
+    else:
+        return dt.strftime("%d.%m.%Y %H:%M")
 
 
 def get_active_season(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> Optional[str]:

@@ -12,7 +12,7 @@ except ImportError:
     pass
 
 # Application Version
-VERSION = "1.5.5"
+VERSION = "1.5.6"
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,6 +24,10 @@ PLAYERS_CACHE_FILE = DATA_DIR / "players.json"
 # League Configuration (populated from .env or environment variables)
 DEFAULT_LEAGUE_ID = os.getenv("LEAGUE_ID", "")
 DEFAULT_TEAM_NAME = os.getenv("TEAM_NAME", "")
+
+# Sync Schedule Configuration (every 30 minutes on the hour and half-hour)
+SYNC_CRON = os.getenv("SYNC_CRON", "0,30 * * * *")
+SYNC_INTERVAL_DESC = "Every 30 min (:00, :30)"
 
 # Color Palette for Owners
 TEAM_PALETTE = [

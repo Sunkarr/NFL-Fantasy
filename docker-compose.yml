@@ -25,6 +25,7 @@ services:
       - LEAGUE_ID=1390344846723543040
       - TEAM_NAME=wetschproblem
       - TZ=Europe/Zurich
+      - SYNC_CRON=0,30 * * * *
     volumes:
       - ./data:/app/data
       - ./src:/app/src

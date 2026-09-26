@@ -10,7 +10,7 @@ A self-hosted, reactive fantasy football analytics suite built with **Marimo**, 
 - [Multi-Season & Year Separation](#multi-season--year-separation)
 - [Docker & Containerization](#docker--containerization)
 - [Raspberry Pi & Local Domain Setup (with Homebridge)](#raspberry-pi--local-domain-setup-with-homebridge)
-- [Daily Automated Data Sync (09:00 & 18:30 CET)](#daily-automated-data-sync-0900--1830-cet)
+- [Automated Data Sync (Every 30 Minutes: :00 & :30)](#automated-data-sync-every-30-minutes-00--30)
 - [Deployment & Configuration](#deployment--configuration)
 
 ---
@@ -19,7 +19,7 @@ A self-hosted, reactive fantasy football analytics suite built with **Marimo**, 
 
 ```mermaid
 flowchart TD
-    SleeperAPI["Sleeper NFL API"] -->|"Twice Daily Sync (09:00 & 18:30 CET)"| Sync["src/sync.py"]
+    SleeperAPI["Sleeper NFL API"] -->|"Twice Hourly Sync (:00 & :30)"| Sync["src/sync.py"]
     Sync -->|"Write / Update"| DB[("SQLite: data/fantasy.db")]
     DB -->|"Read Active Season"| Marimo["Marimo Dashboard (app.py)"]
     Marimo -->|"Port 8501 / 80"| Client["Local Devices (Mac, Phone, Tablet)"]
@@ -114,6 +114,7 @@ erDiagram
 | `current_rosters` | `(league_id, roster_id, player_id)` | Current active ownership and starter/bench designation snapshot. |
 | `weekly_matchup_points` | `(league_id, season, week, roster_id, player_id)` | Fantasy points scored per player within specific league weekly matchups. |
 | `weekly_nfl_stats` | `(season, week, player_id)` | Global NFL player box scores (passing, rushing, receiving, PPR points). |
+| `sync_metadata` | `key` | System and synchronization metadata (e.g. `last_sync` timestamp). |
 
 ---
 
@@ -153,6 +154,7 @@ To ensure previous seasons do not mix into future seasons:
    LEAGUE_ID=your_sleeper_league_id
    TEAM_NAME=your_team_name
    TZ=Europe/Berlin
+   SYNC_CRON=0,30 * * * *
    PORT=8501
    ```
 3. **Launch the container**:
@@ -195,15 +197,7 @@ If you want a dedicated URL without port numbers (like `http://fantasy.home`), k
        listen 80;
        server_name fantasy.home fantasy.lan;
 
-       location / {
-           proxy_pass http://127.0.0.1:8501;
-           proxy_http_version 1.1;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection "upgrade";
-           proxy_set_header Host $host;
-       }
-   }
-   ```
+       location / {\n           proxy_pass http://127.0.0.1:8501;\n           proxy_http_version 1.1;\n           proxy_set_header Upgrade $http_upgrade;\n           proxy_set_header Connection "upgrade";\n           proxy_set_header Host $host;\n       }\n   }\n   ```
    Now `http://fantasy.home` directly opens the Fantasy Dashboard!
 
 ---
@@ -214,13 +208,13 @@ You can broadcast `fantasy.local` alongside your existing hostname by publishing
 
 ---
 
-## ⏰ Daily Automated Data Sync (09:00 & 18:30 CET)
+## ⏰ Automated Data Sync (Every 30 Minutes: :00 & :30)
 
 The service runs automated sync cron jobs synchronized to `Europe/Berlin` / `Europe/Zurich` (CET/CEST):
-- **Morning (09:00 CET)**: Captures overnight scores, stat corrections, and Monday/Thursday/Sunday night game finalizations.
-- **Evening (18:30 CET)**: Captures late injury report updates, waiver wire acquisitions, and active trade adjustments before game days.
-- Execution logs are saved to `data/cron.log`.
-- To trigger a manual sync anytime:
+- **Interval**: Runs every 30 minutes, exactly at **:00** and **:30** (`0,30 * * * *`).
+- **Live UI Vignette**: The bottom-right badge in the dashboard displays the active version, commit SHA, and exact last data fetch timestamp (`Last data fetch: HH:MM`).
+- **Execution logs**: Output is saved to `data/cron.log`.
+- **Manual Sync**: To trigger a manual sync anytime:
   ```bash
   python -m src.sync --mode incremental
   ```

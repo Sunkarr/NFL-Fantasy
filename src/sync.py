@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Tuple
 import requests
 from src.config import DB_PATH, PLAYERS_CACHE_FILE, DEFAULT_LEAGUE_ID
-from src.db import init_db, get_connection
+from src.db import init_db, get_connection, set_sync_metadata
 
 
 def sync_players(db_path: Path = DB_PATH, cache_file: Path = PLAYERS_CACHE_FILE, force_refresh: bool = False) -> int:
@@ -203,12 +203,18 @@ def run_full_sync(league_id: str = DEFAULT_LEAGUE_ID, force_refresh_players: boo
     num_players = sync_players(force_refresh=force_refresh_players)
     season, current_week = sync_league_and_rosters(league_id=league_id)
     n_matchups, n_stats = sync_weekly_data(season=season, max_week=current_week, league_id=league_id, mode=mode)
+    
+    # Record last sync timestamp in metadata
+    now_iso = datetime.datetime.now().isoformat()
+    set_sync_metadata("last_sync", now_iso)
+
     res = {
         "players": num_players,
         "season": season,
         "current_week": current_week,
         "matchup_points": n_matchups,
-        "nfl_stats": n_stats
+        "nfl_stats": n_stats,
+        "last_sync": now_iso
     }
     print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync finished successfully: {res}")
     return res
