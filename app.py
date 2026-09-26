@@ -15,7 +15,11 @@ def _():
     from src.config import DB_PATH, DEFAULT_LEAGUE_ID, VERSION
     from src.db import format_last_sync, get_last_sync_time, load_league_data
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
+    from src.sync import start_background_scheduler
     from src.visual import build_interactive_position_chart, get_owner_color_map
+
+    # Ensure in-process background auto-sync scheduler is running (reliable across local & Docker environments)
+    start_background_scheduler(league_id=DEFAULT_LEAGUE_ID)
 
     # Lightweight observer: update document title & link icon without busy polling loop
     head_favicon = mo.Html(
@@ -71,13 +75,32 @@ def _(head_favicon):
 
 
 @app.cell
+def _(mo):
+    # Top tab navigation with auto-refresh widget (auto-updates every 60s & manual refresh button)
+    refresh_btn = mo.ui.refresh(
+        options=["30s", "1m", "5m"],
+        default_interval="1m",
+    )
+    nav_tabs = mo.ui.tabs({
+        "🏆 League Overview": mo.md(""),
+        "🛡️ Team Analytics": mo.md(""),
+        "📊 Position Scatter": mo.md("")
+    })
+    _top_bar = mo.hstack([nav_tabs, refresh_btn], justify="space-between", align="center")
+    _top_bar
+    return nav_tabs, refresh_btn
+
+
+@app.cell
 def _(
     DB_PATH,
     DEFAULT_LEAGUE_ID,
     compute_player_aggregates,
     get_owner_color_map,
     load_league_data,
+    refresh_btn,
 ):
+    _ = refresh_btn.value  # Reactive dependency: re-runs when refresh timer ticks or button clicked
     df_teams, df_current_rosters, df_matchups, df_nfl_stats = load_league_data(DB_PATH, DEFAULT_LEAGUE_ID)
     df_player_stats = compute_player_aggregates(df_nfl_stats) if df_nfl_stats is not None else None
 
@@ -104,18 +127,6 @@ def _(df_teams, mo):
             )
         )
     return
-
-
-@app.cell
-def _(mo):
-    # Top tab navigation in requested order with clean empty tab containers
-    nav_tabs = mo.ui.tabs({
-        "🏆 League Overview": mo.md(""),
-        "🛡️ Team Analytics": mo.md(""),
-        "📊 Position Scatter": mo.md("")
-    })
-    nav_tabs
-    return (nav_tabs,)
 
 
 @app.cell
@@ -188,15 +199,11 @@ def _(
     nav_tabs,
     owner_colors,
     pos_select,
+    refresh_btn,
     team_dropdown,
     unique_teams,
 ):
-    # Dynamic Git SHA retrieval
-    import subprocess
-    try:
-        _git_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-    except Exception:
-        _git_sha = "latest"
+    _ = refresh_btn.value
 
     # Retrieve last data fetch timestamp
     _last_dt = get_last_sync_time(DB_PATH)
@@ -212,8 +219,6 @@ def _(
         <div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.76rem; color: #475569;">
             <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);"></span>
             <span style="font-weight: 700; color: #0f172a;">v{VERSION}</span>
-            <span style="color: #cbd5e1;">•</span>
-            <span style="background: #f1f5f9; color: #334155; padding: 2px 7px; border-radius: 5px; font-family: monospace; font-weight: 700; font-size: 0.72rem;">{_git_sha}</span>
             <span style="color: #cbd5e1;">•</span>
             <span style="color: #64748b; font-size: 0.72rem; cursor: help;" title="{_last_fetch_title}">Last data fetch: {_last_fetch_str}</span>
         </div>

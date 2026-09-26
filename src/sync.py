@@ -2,11 +2,17 @@ import sys
 import json
 import datetime
 import argparse
+import threading
+import time
 from pathlib import Path
 from typing import Tuple
 import requests
 from src.config import DB_PATH, PLAYERS_CACHE_FILE, DEFAULT_LEAGUE_ID
 from src.db import init_db, get_connection, set_sync_metadata
+
+_scheduler_thread = None
+_scheduler_lock = threading.Lock()
+_sync_in_progress = threading.RLock()
 
 
 def sync_players(db_path: Path = DB_PATH, cache_file: Path = PLAYERS_CACHE_FILE, force_refresh: bool = False) -> int:
@@ -198,26 +204,69 @@ def sync_weekly_data(
 
 def run_full_sync(league_id: str = DEFAULT_LEAGUE_ID, force_refresh_players: bool = False, mode: str = "incremental"):
     """Orchestrate entire sync pipeline."""
-    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Sleeper sync for league {league_id} (mode: {mode})...")
-    init_db()
-    num_players = sync_players(force_refresh=force_refresh_players)
-    season, current_week = sync_league_and_rosters(league_id=league_id)
-    n_matchups, n_stats = sync_weekly_data(season=season, max_week=current_week, league_id=league_id, mode=mode)
-    
-    # Record last sync timestamp in metadata
-    now_iso = datetime.datetime.now().isoformat()
-    set_sync_metadata("last_sync", now_iso)
+    with _sync_in_progress:
+        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Sleeper sync for league {league_id} (mode: {mode})...")
+        init_db()
+        num_players = sync_players(force_refresh=force_refresh_players)
+        season, current_week = sync_league_and_rosters(league_id=league_id)
+        n_matchups, n_stats = sync_weekly_data(season=season, max_week=current_week, league_id=league_id, mode=mode)
+        
+        # Record last sync timestamp in metadata
+        now_iso = datetime.datetime.now().isoformat()
+        set_sync_metadata("last_sync", now_iso)
 
-    res = {
-        "players": num_players,
-        "season": season,
-        "current_week": current_week,
-        "matchup_points": n_matchups,
-        "nfl_stats": n_stats,
-        "last_sync": now_iso
-    }
-    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync finished successfully: {res}")
-    return res
+        res = {
+            "players": num_players,
+            "season": season,
+            "current_week": current_week,
+            "matchup_points": n_matchups,
+            "nfl_stats": n_stats,
+            "last_sync": now_iso
+        }
+        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync finished successfully: {res}")
+        return res
+
+
+def start_background_scheduler(league_id: str = DEFAULT_LEAGUE_ID, interval_minutes: int = 30) -> None:
+    """
+    Start an in-process background daemon thread that ensures data is periodically refreshed.
+    Runs reliably across environments (Docker, Mac local, Marimo run / edit).
+    - Performs initial incremental sync if data is missing or older than interval_minutes.
+    - Synchronizes at :00 and :30 of every hour.
+    """
+    global _scheduler_thread
+    with _scheduler_lock:
+        if _scheduler_thread is not None and _scheduler_thread.is_alive():
+            return
+
+        def _worker():
+            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [AutoSync] Background scheduler started (interval: every {interval_minutes}m at :00 & :30).")
+            from src.db import get_last_sync_time
+            last_dt = get_last_sync_time(DB_PATH)
+            now = datetime.datetime.now()
+            if last_dt is None or (now - last_dt).total_seconds() > (interval_minutes * 60):
+                try:
+                    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [AutoSync] Initial sync triggering...")
+                    run_full_sync(league_id=league_id, mode="incremental")
+                except Exception as e:
+                    print(f"[AutoSync Error] Initial sync failed: {e}")
+
+            while True:
+                time.sleep(30)
+                now = datetime.datetime.now()
+                # Run on the hour and half-hour (:00, :30)
+                if now.minute in [0, 30]:
+                    last_dt = get_last_sync_time(DB_PATH)
+                    # Require at least 5 minutes elapsed since last sync to avoid repeated runs in the same minute
+                    if last_dt is None or (now - last_dt).total_seconds() > 300:
+                        try:
+                            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [AutoSync] Scheduled sync triggering at {now.strftime('%H:%M:%S')}...")
+                            run_full_sync(league_id=league_id, mode="incremental")
+                        except Exception as e:
+                            print(f"[AutoSync Error] Scheduled sync failed: {e}")
+
+        _scheduler_thread = threading.Thread(target=_worker, daemon=True, name="NFLFantasy-AutoSync")
+        _scheduler_thread.start()
 
 
 if __name__ == "__main__":

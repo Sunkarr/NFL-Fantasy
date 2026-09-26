@@ -197,7 +197,15 @@ If you want a dedicated URL without port numbers (like `http://fantasy.home`), k
        listen 80;
        server_name fantasy.home fantasy.lan;
 
-       location / {\n           proxy_pass http://127.0.0.1:8501;\n           proxy_http_version 1.1;\n           proxy_set_header Upgrade $http_upgrade;\n           proxy_set_header Connection "upgrade";\n           proxy_set_header Host $host;\n       }\n   }\n   ```
+       location / {
+           proxy_pass http://127.0.0.1:8501;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+           proxy_set_header Host $host;
+       }
+   }
+   ```
    Now `http://fantasy.home` directly opens the Fantasy Dashboard!
 
 ---
@@ -210,9 +218,9 @@ You can broadcast `fantasy.local` alongside your existing hostname by publishing
 
 ## ⏰ Automated Data Sync (Every 30 Minutes: :00 & :30)
 
-The service runs automated sync cron jobs synchronized to `Europe/Berlin` / `Europe/Zurich` (CET/CEST):
+The service automatically keeps data fresh across environments (via Docker cron and in-process background scheduler):
 - **Interval**: Runs every 30 minutes, exactly at **:00** and **:30** (`0,30 * * * *`).
-- **Live UI Vignette**: The bottom-right badge in the dashboard displays the active version, commit SHA, and exact last data fetch timestamp (`Last data fetch: HH:MM`).
+- **Live UI Auto-Refresh**: The top bar includes a reactive auto-refresh widget (30s, 1m, 5m options and on-demand button), and the bottom-right badge displays the active version and exact last data fetch timestamp (`Last data fetch: HH:MM`).
 - **Execution logs**: Output is saved to `data/cron.log`.
 - **Manual Sync**: To trigger a manual sync anytime:
   ```bash
