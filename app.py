@@ -436,7 +436,7 @@ def _(
                 _view = mo.vstack([
                     _kpi_box,
                     _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
-                    _render_roster_table(_t['bench_df'], "🪵 Bench"),
+                    _render_roster_table(_t['bench_df'], "🪑 Bench"),
                     _fixed_corner_badge
                 ], gap=1)
 
