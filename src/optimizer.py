@@ -34,11 +34,13 @@ def get_current_nfl_week() -> int:
 def get_cached_or_live_projections(
     season: str = "2026",
     week: Optional[int] = None,
+    force_refresh: bool = False,
     db_path: Path = DB_PATH
 ) -> Dict[str, Dict[str, Any]]:
     """
     Fetch and locally cache Sleeper player projections for a given NFL season & week.
     Caches to data/projections_{season}_{week}.json for lightning-fast loads.
+    Auto-refreshes if older than 30 minutes (1800s) or if force_refresh is True.
     """
     if week is None:
         week = get_current_nfl_week()
@@ -47,10 +49,13 @@ def get_cached_or_live_projections(
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / f"projections_{season}_{week}.json"
 
-    if cache_file.exists():
+    if not force_refresh and cache_file.exists():
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+            mtime = cache_file.stat().st_mtime
+            # Auto-refresh if projections cache is older than 30 minutes (1800 seconds)
+            if (time.time() - mtime) < 1800:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
         except Exception:
             pass
 
@@ -68,6 +73,53 @@ def get_cached_or_live_projections(
         print(f"[Optimizer] Failed to fetch Sleeper projections for {season} W{week}: {e}")
 
     return {}
+
+
+
+def get_league_scoring_settings(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> Dict[str, float]:
+    """Retrieve custom league scoring settings from sync_metadata or Sleeper API."""
+    try:
+        from src.db import get_sync_metadata
+        val = get_sync_metadata("league_scoring_settings", db_path=db_path)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+
+    if league_id:
+        try:
+            res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}", timeout=6)
+            if res.status_code == 200:
+                settings = res.json().get("scoring_settings", {})
+                if settings:
+                    from src.db import set_sync_metadata
+                    set_sync_metadata("league_scoring_settings", json.dumps(settings), db_path=db_path)
+                    return settings
+        except Exception:
+            pass
+
+    return {}
+
+
+def calculate_projected_points(player_stats: Dict[str, Any], scoring_settings: Dict[str, float]) -> float:
+    """Calculate fantasy points for projected stat categories using custom league rules."""
+    if not player_stats:
+        return 0.0
+
+    if not scoring_settings:
+        return float(player_stats.get("pts_ppr", player_stats.get("pts_half_ppr", player_stats.get("pts_std", 0.0))))
+
+    total = 0.0
+    has_custom = False
+    for stat, val in player_stats.items():
+        if stat in scoring_settings and isinstance(val, (int, float)):
+            total += val * scoring_settings[stat]
+            has_custom = True
+
+    if not has_custom:
+        return float(player_stats.get("pts_ppr", player_stats.get("pts_half_ppr", player_stats.get("pts_std", 0.0))))
+
+    return round(total, 2)
 
 
 def get_matchup_pairings(
@@ -171,9 +223,10 @@ def find_top_free_agents(
         return None
 
     if mode == "projection":
+        scoring_settings = get_league_scoring_settings(db_path=db_path)
         projections = get_cached_or_live_projections(season=season, week=selected_week, db_path=db_path)
         fa_candidates["score"] = fa_candidates["player_id"].apply(
-            lambda pid: float(projections.get(str(pid), {}).get("pts_ppr", projections.get(str(pid), {}).get("pts_half_ppr", projections.get(str(pid), {}).get("pts_std", 0.0))))
+            lambda pid: calculate_projected_points(projections.get(str(pid), {}), scoring_settings)
         )
     else:
         if df_player_stats is not None and not df_player_stats.empty:
@@ -279,9 +332,10 @@ def optimize_team_lineup(
         roster_df["is_curr_starter"] = roster_df["is_starter"].fillna(0).astype(int)
 
         if mode == "projection":
+            scoring_settings = get_league_scoring_settings(db_path=db_path, league_id=league_id)
             projections = get_cached_or_live_projections(season=season, week=selected_week, db_path=db_path)
             roster_df["score"] = roster_df["player_id"].apply(
-                lambda pid: float(projections.get(str(pid), {}).get("pts_ppr", projections.get(str(pid), {}).get("pts_half_ppr", projections.get(str(pid), {}).get("pts_std", 0.0))))
+                lambda pid: calculate_projected_points(projections.get(str(pid), {}), scoring_settings)
             )
             score_label = f"Matchup Projections (Week {selected_week})"
             mode_title = f"Team Optimizer — Matchup Projections (Week {selected_week})"

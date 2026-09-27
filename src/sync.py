@@ -87,6 +87,11 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
     league_data = l_res.json()
     season = league_data.get("season", "2026")
 
+    # Persist league custom scoring settings to database metadata
+    scoring_settings = league_data.get("scoring_settings", {})
+    if scoring_settings:
+        set_sync_metadata("league_scoring_settings", json.dumps(scoring_settings), db_path=db_path)
+
     # Fetch NFL active state for dynamic current week
     try:
         st_res = requests.get("https://api.sleeper.app/v1/state/nfl", timeout=5).json()
@@ -265,6 +270,14 @@ def run_full_sync(
             db_path=db_path
         )
         print(f"Synced {m_count} matchup scores and {s_count} NFL player stats entries.")
+
+        # Proactively refresh current week projections with latest Sleeper estimates
+        try:
+            from src.optimizer import get_cached_or_live_projections
+            get_cached_or_live_projections(season=season, week=current_week, force_refresh=True, db_path=db_path)
+            print(f"Synced latest matchup projections for season {season}, week {current_week}.")
+        except Exception as pe:
+            print(f"[Projections Sync Note]: {pe}")
 
         set_sync_metadata("last_sync_success", datetime.datetime.now().isoformat(), db_path=db_path)
         print("Data sync completed successfully.")
