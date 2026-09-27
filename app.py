@@ -14,6 +14,7 @@ def _():
 
     from src.config import DB_PATH, DEFAULT_LEAGUE_ID, VERSION
     from src.db import format_last_sync, get_last_sync_time, load_league_data
+    from src.optimizer import optimize_team_lineup, render_optimizer_view
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.sync import start_background_scheduler
     from src.visual import build_interactive_position_chart, get_owner_color_map
@@ -21,9 +22,22 @@ def _():
     # Ensure in-process background auto-sync scheduler is running (reliable across local & Docker environments)
     start_background_scheduler(league_id=DEFAULT_LEAGUE_ID)
 
-    # Lightweight observer: update document title & link icon without busy polling loop
+    # Lightweight observer: update document title, link icon, and custom UI style tweaks
     head_favicon = mo.Html(
         """
+        <style>
+        /* Mode switch: Keep active blue accent in both states so it toggles between two modes without turning grey */
+        marimo-switch[data-label="null"] button[role="switch"],
+        marimo-switch[data-label="null"] button[data-state="unchecked"],
+        marimo-switch[data-label="null"] button[data-state="checked"] {
+            background-color: #2563eb !important;
+        }
+        marimo-switch[data-label="null"] button[role="switch"]:hover,
+        marimo-switch[data-label="null"] button[data-state="unchecked"]:hover,
+        marimo-switch[data-label="null"] button[data-state="checked"]:hover {
+            background-color: #1d4ed8 !important;
+        }
+        </style>
         <script>
         (function() {
             function setFavicon() {
@@ -65,6 +79,8 @@ def _():
         head_favicon,
         load_league_data,
         mo,
+        optimize_team_lineup,
+        render_optimizer_view,
     )
 
 
@@ -84,6 +100,7 @@ def _(mo):
     nav_tabs = mo.ui.tabs({
         "🏆 League Overview": mo.md(""),
         "🛡️ Team Analytics": mo.md(""),
+        "⚡ Team Optimizer": mo.md(""),
         "📊 Position Scatter": mo.md("")
     })
     _top_bar = mo.hstack([nav_tabs, refresh_btn], justify="space-between", align="center")
@@ -108,6 +125,7 @@ def _(
     owner_colors = get_owner_color_map(unique_teams)
     return (
         df_current_rosters,
+        df_matchups,
         df_player_stats,
         df_teams,
         owner_colors,
@@ -154,10 +172,14 @@ def _(df_teams, mo, nav_tabs):
         )
         _filter_bar = mo.hstack([pos_select, min_pts_slider, limit_slider], justify="start", align="center", gap=2)
         team_dropdown = None
+        opt_mode_switch = None
+        opt_injury_switch = None
     elif nav_tabs.value == "🛡️ Team Analytics":
         pos_select = None
         min_pts_slider = None
         limit_slider = None
+        opt_mode_switch = None
+        opt_injury_switch = None
 
         _team_options = {}
         if df_teams is not None and not df_teams.empty:
@@ -170,23 +192,73 @@ def _(df_teams, mo, nav_tabs):
             label="Select Team:"
         )
         _filter_bar = mo.hstack([team_dropdown], justify="start", align="center", gap=2)
+    elif nav_tabs.value == "⚡ Team Optimizer":
+        pos_select = None
+        min_pts_slider = None
+        limit_slider = None
+
+        _team_options = {}
+        if df_teams is not None and not df_teams.empty:
+            for _, _r_team in df_teams.iterrows():
+                _team_options[f"{_r_team['team_name']} ({_r_team['wins']}-{_r_team['losses']})"] = _r_team['team_name']
+
+        team_dropdown = mo.ui.dropdown(
+            options=_team_options,
+            value=list(_team_options.keys())[0] if _team_options else None,
+            label="Team:"
+        )
+
+        opt_mode_switch = mo.ui.switch(
+            value=False
+        )
+
+        opt_injury_switch = mo.ui.switch(
+            value=True,
+            label="🛡️ Ignore Injured (incl. Questionable)"
+        )
+
+        _divider1 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
+        _divider2 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
+        _label_proj = mo.md("<span style='font-size:0.83rem; font-weight:600; color:#334155; white-space:nowrap;'>🎯 Matchup Projections</span>")
+        _label_ppg = mo.md("<span style='font-size:0.83rem; font-weight:600; color:#334155; white-space:nowrap;'>📈 Season Average (PPG)</span>")
+
+        _filter_bar = mo.hstack([
+            team_dropdown,
+            _divider1,
+            _label_proj,
+            opt_mode_switch,
+            _label_ppg,
+            _divider2,
+            opt_injury_switch
+        ], justify="start", align="center", gap=0.7)
     else:
         pos_select = None
         min_pts_slider = None
         limit_slider = None
         team_dropdown = None
+        opt_mode_switch = None
+        opt_injury_switch = None
         _filter_bar = None
 
     _filter_bar if _filter_bar is not None else mo.md("")
-    return limit_slider, min_pts_slider, pos_select, team_dropdown
+    return (
+        limit_slider,
+        min_pts_slider,
+        opt_injury_switch,
+        opt_mode_switch,
+        pos_select,
+        team_dropdown,
+    )
 
 
 @app.cell
 def _(
     DB_PATH,
+    DEFAULT_LEAGUE_ID,
     VERSION,
     build_interactive_position_chart,
     df_current_rosters,
+    df_matchups,
     df_player_stats,
     df_teams,
     format_last_sync,
@@ -197,9 +269,13 @@ def _(
     min_pts_slider,
     mo,
     nav_tabs,
+    opt_injury_switch,
+    opt_mode_switch,
+    optimize_team_lineup,
     owner_colors,
     pos_select,
     refresh_btn,
+    render_optimizer_view,
     team_dropdown,
     unique_teams,
 ):
@@ -439,6 +515,30 @@ def _(
                     _render_roster_table(_t['bench_df'], "🪑 Bench"),
                     _fixed_corner_badge
                 ], gap=1)
+
+    elif nav_tabs.value == "⚡ Team Optimizer":
+        if team_dropdown is None or not team_dropdown.value:
+            _view = mo.md("Please select a team.")
+        else:
+            _selected_team = team_dropdown.value
+            _mode = "ppg" if (opt_mode_switch and opt_mode_switch.value) else "projection"
+            _ignore_inj = opt_injury_switch.value if opt_injury_switch else True
+
+            _opt_res = optimize_team_lineup(
+                team_name=_selected_team,
+                mode=_mode,
+                selected_week=None,
+                ignore_injured=_ignore_inj,
+                df_teams=df_teams,
+                df_rosters=df_current_rosters,
+                df_matchups=df_matchups,
+                df_player_stats=df_player_stats,
+                season="2026",
+                league_id=DEFAULT_LEAGUE_ID,
+                db_path=DB_PATH
+            )
+            _content = render_optimizer_view(_opt_res, mo)
+            _view = mo.vstack([_content, _fixed_corner_badge], gap=1)
 
     else:
         # League Overview Page

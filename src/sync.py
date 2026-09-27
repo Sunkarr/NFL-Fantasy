@@ -18,7 +18,19 @@ _sync_in_progress = threading.RLock()
 def sync_players(db_path: Path = DB_PATH, cache_file: Path = PLAYERS_CACHE_FILE, force_refresh: bool = False) -> int:
     """Download and cache Sleeper players database (~5MB) and insert into SQLite."""
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    if not cache_file.exists() or force_refresh:
+    
+    # Refresh cache if older than 2 hours (7200s) to keep injury statuses strictly up to date
+    cache_ttl_seconds = 7200
+    cache_stale = False
+    if cache_file.exists():
+        try:
+            mtime = cache_file.stat().st_mtime
+            if (time.time() - mtime) > cache_ttl_seconds:
+                cache_stale = True
+        except Exception:
+            cache_stale = True
+
+    if not cache_file.exists() or force_refresh or cache_stale:
         res = requests.get("https://api.sleeper.app/v1/players/nfl", timeout=15)
         res.raise_for_status()
         players_data = res.json()
@@ -69,24 +81,34 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
     init_db(db_path)
     now = datetime.datetime.now().isoformat()
 
-    # Determine season from league info or fallback to global NFL state
-    league_info = requests.get(f"https://api.sleeper.app/v1/league/{league_id}", timeout=10).json()
-    season = str(league_info.get("season", "")) if league_info and "season" in league_info else ""
+    # 1. League metadata
+    l_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}", timeout=10)
+    l_res.raise_for_status()
+    league_data = l_res.json()
+    season = league_data.get("season", "2026")
 
-    state = requests.get("https://api.sleeper.app/v1/state/nfl", timeout=10).json()
-    if not season:
-        season = str(state.get("season", "2026"))
-    current_week = state.get("display_week", state.get("week", 1))
+    # Fetch NFL active state for dynamic current week
+    try:
+        st_res = requests.get("https://api.sleeper.app/v1/state/nfl", timeout=5).json()
+        current_week = int(st_res.get("display_week") or st_res.get("week") or 1)
+    except Exception:
+        current_week = int(league_data.get("settings", {}).get("leg", 1))
 
-    users = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/users", timeout=10).json()
-    rosters = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/rosters", timeout=10).json()
-
+    # 2. Users (display names & team names)
+    u_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/users", timeout=10)
+    u_res.raise_for_status()
+    users_data = u_res.json()
     user_map = {}
-    for u in users:
+    for u in users_data:
         uid = u.get("user_id")
-        dname = u.get("display_name", "")
+        dname = u.get("display_name")
         tname = u.get("metadata", {}).get("team_name") or dname
         user_map[uid] = (dname, tname)
+
+    # 3. Rosters
+    r_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/rosters", timeout=10)
+    r_res.raise_for_status()
+    rosters = r_res.json()
 
     conn = get_connection(db_path)
     cur = conn.cursor()
@@ -149,135 +171,158 @@ def sync_weekly_data(
     else:
         weeks_to_sync = list(range(1, max_week + 1))
 
-    if not weeks_to_sync:
-        conn.close()
-        return 0, 0
-
-    matchup_entries = []
-    stats_entries = []
+    matchup_rows = []
+    stats_rows = []
 
     for w in weeks_to_sync:
-        m_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/matchups/{w}", timeout=10)
-        if m_res.status_code == 200:
-            m_data = m_res.json()
-            for m in m_data:
-                rid = m.get("roster_id")
-                starters = set(m.get("starters") or [])
-                pts_map = m.get("players_points") or {}
-                for pid, pts in pts_map.items():
-                    matchup_entries.append((
-                        league_id, season, w, rid, str(pid), float(pts), 1 if str(pid) in starters else 0, now
+        # Matchups
+        try:
+            m_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/matchups/{w}", timeout=10)
+            if m_res.status_code == 200:
+                matchups = m_res.json()
+                for m in matchups:
+                    rid = m.get("roster_id")
+                    players_pts = m.get("players_points") or {}
+                    starters = set(m.get("starters") or [])
+
+                    for pid, pts in players_pts.items():
+                        matchup_rows.append((
+                            league_id,
+                            season,
+                            w,
+                            rid,
+                            str(pid),
+                            float(pts) if pts is not None else 0.0,
+                            1 if str(pid) in starters else 0,
+                            now
+                        ))
+        except Exception as e:
+            print(f"Error fetching matchups for week {w}: {e}")
+
+        # Global NFL Stats
+        try:
+            s_res = requests.get(f"https://api.sleeper.app/v1/stats/nfl/regular/{season}/{w}", timeout=15)
+            if s_res.status_code == 200:
+                stats_dict = s_res.json()
+                for pid, st in stats_dict.items():
+                    stats_rows.append((
+                        season,
+                        w,
+                        str(pid),
+                        float(st.get("pts_ppr", st.get("pts_half_ppr", st.get("pts_std", 0.0)))),
+                        float(st.get("pass_yd", 0.0)),
+                        float(st.get("pass_td", 0.0)),
+                        float(st.get("pass_int", 0.0)),
+                        float(st.get("rush_yd", 0.0)),
+                        float(st.get("rush_td", 0.0)),
+                        float(st.get("rec", 0.0)),
+                        float(st.get("rec_yd", 0.0)),
+                        float(st.get("rec_td", 0.0)),
+                        now
                     ))
+        except Exception as e:
+            print(f"Error fetching stats for week {w}: {e}")
 
-        s_res = requests.get(f"https://api.sleeper.app/v1/stats/nfl/regular/{season}/{w}", timeout=10)
-        if s_res.status_code == 200:
-            s_data = s_res.json()
-            for pid, s in s_data.items():
-                if str(pid).startswith("TEAM_"):
-                    continue
-                pts = s.get("pts_ppr", s.get("pts_half_ppr", s.get("pts_std", 0.0)))
-                stats_entries.append((
-                    season, w, str(pid),
-                    float(pts) if pts is not None else 0.0,
-                    s.get("pass_yd", 0.0), s.get("pass_td", 0.0), s.get("pass_int", 0.0),
-                    s.get("rush_yd", 0.0), s.get("rush_td", 0.0),
-                    s.get("rec", 0.0), s.get("rec_yd", 0.0), s.get("rec_td", 0.0),
-                    now
-                ))
+    if matchup_rows:
+        cur.executemany('''
+            INSERT OR REPLACE INTO weekly_matchup_points
+            (league_id, season, week, roster_id, player_id, points, started, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', matchup_rows)
 
-    cur.executemany('''
-        INSERT OR REPLACE INTO weekly_matchup_points 
-        (league_id, season, week, roster_id, player_id, points, started, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', matchup_entries)
-
-    cur.executemany('''
-        INSERT OR REPLACE INTO weekly_nfl_stats 
-        (season, week, player_id, points, pass_yd, pass_td, pass_int, rush_yd, rush_td, rec, rec_yd, rec_td, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', stats_entries)
+    if stats_rows:
+        cur.executemany('''
+            INSERT OR REPLACE INTO weekly_nfl_stats
+            (season, week, player_id, points, pass_yd, pass_td, pass_int, rush_yd, rush_td, rec, rec_yd, rec_td, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', stats_rows)
 
     conn.commit()
     conn.close()
-    return len(matchup_entries), len(stats_entries)
+    return len(matchup_rows), len(stats_rows)
 
 
-def run_full_sync(league_id: str = DEFAULT_LEAGUE_ID, force_refresh_players: bool = False, mode: str = "incremental"):
-    """Orchestrate entire sync pipeline."""
+def run_full_sync(
+    league_id: str = DEFAULT_LEAGUE_ID,
+    mode: str = "incremental",
+    force_players: bool = False,
+    db_path: Path = DB_PATH
+) -> None:
+    """Orchestrate players, league, and weekly stats data download."""
     with _sync_in_progress:
-        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Sleeper sync for league {league_id} (mode: {mode})...")
-        init_db()
-        num_players = sync_players(force_refresh=force_refresh_players)
-        season, current_week = sync_league_and_rosters(league_id=league_id)
-        n_matchups, n_stats = sync_weekly_data(season=season, max_week=current_week, league_id=league_id, mode=mode)
-        
-        # Record last sync timestamp in metadata
-        now_iso = datetime.datetime.now().isoformat()
-        set_sync_metadata("last_sync", now_iso)
+        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting sync (mode={mode})...")
+        p_count = sync_players(db_path=db_path, force_refresh=force_players)
+        print(f"Synced {p_count} players.")
 
-        res = {
-            "players": num_players,
-            "season": season,
-            "current_week": current_week,
-            "matchup_points": n_matchups,
-            "nfl_stats": n_stats,
-            "last_sync": now_iso
-        }
-        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sync finished successfully: {res}")
-        return res
+        season, current_week = sync_league_and_rosters(league_id=league_id, db_path=db_path)
+        print(f"Synced league & rosters for season {season}, active week {current_week}.")
+
+        m_count, s_count = sync_weekly_data(
+            season=season,
+            max_week=current_week,
+            league_id=league_id,
+            mode=mode,
+            db_path=db_path
+        )
+        print(f"Synced {m_count} matchup scores and {s_count} NFL player stats entries.")
+
+        set_sync_metadata("last_sync_success", datetime.datetime.now().isoformat(), db_path=db_path)
+        print("Data sync completed successfully.")
 
 
-def start_background_scheduler(league_id: str = DEFAULT_LEAGUE_ID, interval_minutes: int = 30) -> None:
+def _scheduler_worker(league_id: str, db_path: Path):
     """
-    Start an in-process background daemon thread that ensures data is periodically refreshed.
-    Runs reliably across environments (Docker, Mac local, Marimo run / edit).
-    - Performs initial incremental sync if data is missing or older than interval_minutes.
-    - Synchronizes at :00 and :30 of every hour.
+    Background worker thread running on the exact hour and half-hour (:00 and :30).
+    Runs indefinitely without blocking main thread.
     """
+    while True:
+        try:
+            now = datetime.datetime.now()
+            minute = now.minute
+            second = now.second
+
+            # Target next :00 or :30 boundary
+            if minute < 30:
+                target_min = 30
+            else:
+                target_min = 60
+
+            seconds_to_wait = (target_min - minute) * 60 - second
+            if seconds_to_wait <= 0:
+                seconds_to_wait = 1800  # Fallback: 30 minutes
+
+            time.sleep(seconds_to_wait)
+            run_full_sync(league_id=league_id, mode="incremental", db_path=db_path)
+        except Exception as e:
+            print(f"[Sync Scheduler Error]: {e}", file=sys.stderr)
+            time.sleep(60)
+
+
+def start_background_scheduler(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = DB_PATH) -> bool:
+    """Start persistent background scheduler thread if not already running."""
     global _scheduler_thread
     with _scheduler_lock:
-        if _scheduler_thread is not None and _scheduler_thread.is_alive():
-            return
-
-        def _worker():
-            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [AutoSync] Background scheduler started (interval: every {interval_minutes}m at :00 & :30).")
-            from src.db import get_last_sync_time
-            last_dt = get_last_sync_time(DB_PATH)
-            now = datetime.datetime.now()
-            if last_dt is None or (now - last_dt).total_seconds() > (interval_minutes * 60):
-                try:
-                    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [AutoSync] Initial sync triggering...")
-                    run_full_sync(league_id=league_id, mode="incremental")
-                except Exception as e:
-                    print(f"[AutoSync Error] Initial sync failed: {e}")
-
-            while True:
-                time.sleep(30)
-                now = datetime.datetime.now()
-                # Run on the hour and half-hour (:00, :30)
-                if now.minute in [0, 30]:
-                    last_dt = get_last_sync_time(DB_PATH)
-                    # Require at least 5 minutes elapsed since last sync to avoid repeated runs in the same minute
-                    if last_dt is None or (now - last_dt).total_seconds() > 300:
-                        try:
-                            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [AutoSync] Scheduled sync triggering at {now.strftime('%H:%M:%S')}...")
-                            run_full_sync(league_id=league_id, mode="incremental")
-                        except Exception as e:
-                            print(f"[AutoSync Error] Scheduled sync failed: {e}")
-
-        _scheduler_thread = threading.Thread(target=_worker, daemon=True, name="NFLFantasy-AutoSync")
-        _scheduler_thread.start()
+        if _scheduler_thread is None or not _scheduler_thread.is_alive():
+            _scheduler_thread = threading.Thread(
+                target=_scheduler_worker,
+                args=(league_id, db_path),
+                daemon=True,
+                name="SleeperSyncScheduler"
+            )
+            _scheduler_thread.start()
+            return True
+        return False
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Sync Sleeper League Data to SQLite")
+    parser = argparse.ArgumentParser(description="Download NFL Fantasy league data into local SQLite.")
     parser.add_argument("--league-id", default=DEFAULT_LEAGUE_ID, help="Sleeper League ID")
-    parser.add_argument("--mode", default="incremental", choices=["incremental", "full"], help="Sync mode")
-    parser.add_argument("--force-players", action="store_true", help="Force re-download of full player database")
+    parser.add_argument("--mode", choices=["full", "incremental"], default="incremental", help="Sync mode")
+    parser.add_argument("--force-players", action="store_true", help="Force re-download of players database")
     args = parser.parse_args()
 
     run_full_sync(
         league_id=args.league_id,
-        force_refresh_players=args.force_players,
-        mode=args.mode
+        mode=args.mode,
+        force_players=args.force_players
     )
