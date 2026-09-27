@@ -619,7 +619,7 @@ def optimize_team_lineup(
     # 4. Total points and Deltas
     curr_score = round(sum(float(curr_by_slot[k].get("score") or 0.0) for k in slot_keys if k in curr_by_slot), 2)
     opt_score = round(sum(float(opt_by_slot[k].get("score") or 0.0) for k in slot_keys if k in opt_by_slot), 2)
-    net_gain = round(max(0.0, opt_score - curr_score), 2)
+    net_gain = round(opt_score - curr_score, 2)
     eff_pct = round((curr_score / opt_score * 100.0) if opt_score > 0 else 100.0, 1)
 
     # 5. Build Slot-by-Slot Comparison Table: Strictly paired by identical position slots!
@@ -639,7 +639,7 @@ def optimize_team_lineup(
             "opt_player": o,
             "curr_score": c_score,
             "opt_score": o_score,
-            "gain": max(0.0, gain) if is_swap else 0.0,
+            "gain": gain if is_swap else 0.0,
             "is_swap": is_swap
         })
 
@@ -888,8 +888,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             </div>
             <div>
                 <div style="font-size:0.74rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Potential / Net Gain</div>
-                <div style="font-size:1.55rem; font-weight:800; color:{'#16a34a' if net_gain > 0 else '#64748b'}; margin:3px 0;">
-                    {f"+{net_gain:.2f}" if net_gain > 0 else "0.00"} <span style="font-size:0.8rem; font-weight:600;">{score_unit}</span>
+                <div style="font-size:1.55rem; font-weight:800; color:{'#16a34a' if net_gain > 0 else ('#dc2626' if net_gain < 0 else '#64748b')}; margin:3px 0;">
+                    {f"+{net_gain:.2f}" if net_gain > 0 else (f"{net_gain:.2f}" if net_gain < 0 else "0.00")} <span style="font-size:0.8rem; font-weight:600;">{score_unit}</span>
                 </div>
                 <div style="font-size:0.74rem; color:#94a3b8;">{f'{len(swaps)} swap(s) recommended' if len(swaps) > 0 else 'No swaps needed'}</div>
             </div>
@@ -939,9 +939,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
                         <div style="font-size:0.72rem; color:#64748b;">{p_out.get('nfl_team')} • {p_out.get('position')} • <span style="color:#64748b;">{float(p_out.get('score') or 0):.2f} {score_unit}</span></div>
                     </div>
                 </div>
-
-                <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#16a34a; font-weight:800; font-size:0.82rem; padding:4px 10px; border-radius:8px; margin-left:auto;">
-                    +{gain_val:.2f} {score_unit}
+                <div style="{'background:#f0fdf4; border:1px solid #bbf7d0; color:#16a34a;' if gain_val > 0 else ('background:#fef2f2; border:1px solid #fecaca; color:#dc2626;' if gain_val < 0 else 'background:#f8fafc; border:1px solid #e2e8f0; color:#64748b;')} font-weight:800; font-size:0.82rem; padding:4px 10px; border-radius:8px; margin-left:auto; white-space:nowrap;">
+                    {f'+{gain_val:.2f}' if gain_val > 0 else (f'🛡️ Safety ({gain_val:.2f})' if gain_val < 0 else '0.00')} {score_unit}
                 </div>
             </div>
             """
@@ -1005,8 +1004,15 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             o_status = ""
 
         if is_swap:
-            action_badge = "<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:6px; white-space:nowrap;'>🔄 Swap</span>"
-            gain_badge = f"<span style='color:#16a34a; font-weight:700;'>+{gain:.2f}</span>"
+            if gain > 0:
+                action_badge = "<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:6px; white-space:nowrap;'>🔄 Swap</span>"
+                gain_badge = f"<span style='color:#16a34a; font-weight:700;'>+{gain:.2f}</span>"
+            elif gain < 0:
+                action_badge = "<span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:6px; white-space:nowrap;'>🛡️ Safety</span>"
+                gain_badge = f"<span style='color:#dc2626; font-weight:700;'>{gain:.2f}</span>"
+            else:
+                action_badge = "<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:6px; white-space:nowrap;'>🔄 Swap</span>"
+                gain_badge = "<span style='color:#64748b; font-weight:700;'>0.00</span>"
             row_bg = "background:#fffdfa;"
         else:
             action_badge = "<span style='background:#f1f5f9; border:1px solid #e2e8f0; color:#475569; font-weight:600; font-size:0.75rem; padding:3px 8px; border-radius:6px; white-space:nowrap;'>✅ Keep</span>"
