@@ -143,13 +143,14 @@ def get_last_sync_time(db_path: Path = DB_PATH) -> Optional[datetime.datetime]:
     if not db_path.exists():
         return None
 
-    # 1. Try sync_metadata
-    val = get_sync_metadata("last_sync", db_path)
-    if val:
-        try:
-            return datetime.datetime.fromisoformat(val)
-        except Exception:
-            pass
+    # 1. Try sync_metadata (check last_sync_success, then last_sync)
+    for key in ("last_sync_success", "last_sync"):
+        val = get_sync_metadata(key, db_path)
+        if val:
+            try:
+                return datetime.datetime.fromisoformat(val)
+            except Exception:
+                pass
 
     # 2. Try MAX(updated_at) from teams or current_rosters
     try:

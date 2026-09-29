@@ -279,7 +279,9 @@ def run_full_sync(
         except Exception as pe:
             print(f"[Projections Sync Note]: {pe}")
 
-        set_sync_metadata("last_sync_success", datetime.datetime.now().isoformat(), db_path=db_path)
+        now_iso = datetime.datetime.now().isoformat()
+        set_sync_metadata("last_sync", now_iso, db_path=db_path)
+        set_sync_metadata("last_sync_success", now_iso, db_path=db_path)
         print("Data sync completed successfully.")
 
 
@@ -288,6 +290,16 @@ def _scheduler_worker(league_id: str, db_path: Path):
     Background worker thread running on the exact hour and half-hour (:00 and :30).
     Runs indefinitely without blocking main thread.
     """
+    # Proactively check if DB needs sync on thread start (if missing, empty, or older than 30 mins)
+    try:
+        from src.db import get_last_sync_time
+        last_dt = get_last_sync_time(db_path)
+        if last_dt is None or (datetime.datetime.now() - last_dt).total_seconds() > 1800:
+            print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [Sync Scheduler] Triggering initial background sync...")
+            run_full_sync(league_id=league_id, mode="incremental", db_path=db_path)
+    except Exception as e:
+        print(f"[Sync Scheduler Initial Error]: {e}", file=sys.stderr)
+
     while True:
         try:
             now = datetime.datetime.now()

@@ -7,10 +7,16 @@ echo "🕒 Current Container Time: $(date)"
 # Ensure data directory exists
 mkdir -p /app/data
 
-# Perform initial sync if SQLite DB is missing or empty
+# Fix PAM for cron in Docker Debian environment
+sed -i '/pam_loginuid.so/c session optional pam_loginuid.so' /etc/pam.d/cron 2>/dev/null || true
+
+# Perform initial sync if SQLite DB is missing or empty, or refresh on startup
 if [ ! -f /app/data/fantasy.db ]; then
-    echo "⚡ Initializing database and performing initial Sleeper sync..."
+    echo "⚡ Initializing database and performing initial Sleeper full sync..."
     python -m src.sync --mode full || true
+else
+    echo "⚡ Refreshing Sleeper fantasy data on startup..."
+    python -m src.sync --mode incremental || true
 fi
 
 SYNC_CRON=${SYNC_CRON:-"0,30 * * * *"}
