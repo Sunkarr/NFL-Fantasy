@@ -19,15 +19,9 @@ services:
     image: allinurl/goaccess:latest
     container_name: nfl-fantasy-goaccess
     restart: unless-stopped
-    entrypoint: >
-      sh -c '
-      mkdir -p /srv/logs /srv/report
-      if [ ! -s /srv/logs/access.log ]; then
-        echo "{\"ts\": 1727600000.0, \"request\": {\"remote_ip\": \"127.0.0.1\", \"method\": \"GET\", \"proto\": \"HTTP/2.0\", \"host\": \"nfl-fantasy-jonas.belgiumcentral.cloudapp.azure.com\", \"uri\": \"/\"}, \"status\": 200, \"size\": 100}" >> /srv/logs/access.log
-      fi
-      exec goaccess /srv/logs/access.log -o /srv/report/index.html --log-format=CADDY --real-time-html --ws-url=wss://nfl-fantasy-jonas.belgiumcentral.cloudapp.azure.com:443/goaccess-ws --port=7890
-      '
+    entrypoint: ["/bin/sh", "/run_goaccess.sh"]
     volumes:
+      - ./scripts/run_goaccess.sh:/run_goaccess.sh:ro
       - caddy_logs:/srv/logs
       - goaccess_report:/srv/report
     depends_on:
