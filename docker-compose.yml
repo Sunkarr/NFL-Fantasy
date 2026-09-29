@@ -6,12 +6,26 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    command: caddy reverse-proxy --from https://nfl-fantasy-jonas.belgiumcentral.cloudapp.azure.com --to fantasy-dashboard:8501
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+      - goaccess_report:/srv/report:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - fantasy-dashboard
+
+  goaccess:
+    image: allinurl/goaccess:latest
+    container_name: nfl-fantasy-goaccess
+    restart: unless-stopped
+    entrypoint: >
+      sh -c "mkdir -p /srv/logs /srv/report && touch /srv/logs/access.log && exec goaccess /srv/logs/access.log -o /srv/report/index.html --log-format=CADDY --real-time-html --ws-url=wss://nfl-fantasy-jonas.belgiumcentral.cloudapp.azure.com:443/goaccess-ws --port=7890"
+    volumes:
+      - caddy_logs:/srv/logs:ro
+      - goaccess_report:/srv/report
+    depends_on:
+      - caddy
 
   fantasy-dashboard:
     build:
@@ -36,3 +50,5 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  caddy_logs:
+  goaccess_report:

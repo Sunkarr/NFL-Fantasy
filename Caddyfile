@@ -1,0 +1,35 @@
+{
+    admin off
+}
+
+nfl-fantasy-jonas.belgiumcentral.cloudapp.azure.com {
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 20mb
+            roll_keep 5
+        }
+        format json
+    }
+
+    # Redirect /stats to /stats/
+    redir /stats /stats/
+
+    # Serve GoAccess Live Analytics Dashboard at /stats/
+    handle_path /stats/* {
+        header X-Robots-Tag "noindex, nofollow"
+        root * /srv/report
+        file_server {
+            index index.html
+        }
+    }
+
+    # GoAccess WebSocket for real-time live updates
+    handle /goaccess-ws* {
+        reverse_proxy goaccess:7890
+    }
+
+    # Main NFL Fantasy Dashboard (Marimo)
+    handle {
+        reverse_proxy fantasy-dashboard:8501
+    }
+}
