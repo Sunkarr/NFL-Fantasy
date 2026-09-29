@@ -12,7 +12,7 @@ def _():
     import marimo as mo
     import pandas as pd
 
-    from src.config import DB_PATH, DEFAULT_LEAGUE_ID, VERSION
+    from src.config import DB_PATH, DEFAULT_LEAGUE_ID, DEFAULT_TEAM_NAME, VERSION
     from src.db import format_last_sync, get_last_sync_time, load_league_data
     from src.optimizer import get_current_nfl_week, optimize_team_lineup, render_optimizer_view
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
@@ -68,6 +68,7 @@ def _():
     return (
         DB_PATH,
         DEFAULT_LEAGUE_ID,
+        DEFAULT_TEAM_NAME,
         VERSION,
         build_interactive_position_chart,
         compute_player_aggregates,
@@ -93,10 +94,10 @@ def _(head_favicon):
 
 @app.cell
 def _(mo):
-    # Top tab navigation with auto-refresh widget (auto-updates every 60s & manual refresh button)
+    # Top tab navigation with refresh widget (manual on-demand or user-selected interval, defaults to no auto-tick)
     refresh_btn = mo.ui.refresh(
         options=["30s", "1m", "5m"],
-        default_interval="1m",
+        default_interval=None,
     )
     nav_tabs = mo.ui.tabs({
         "🏆 League Overview": mo.md(""),
@@ -149,88 +150,106 @@ def _(df_teams, mo):
 
 
 @app.cell
-def _(df_teams, get_current_nfl_week, mo, nav_tabs):
+def _(mo):
+    # Persistent Position Scatter UI controls (never reset across tab switches or background refreshes)
+    pos_select = mo.ui.radio(
+        options=["QB", "RB", "WR", "TE", "DEF", "K"],
+        value="QB",
+        inline=True,
+        label="Position:"
+    )
+    min_pts_slider = mo.ui.slider(
+        start=0,
+        stop=20,
+        step=1,
+        value=3,
+        label="Min Avg Points:"
+    )
+    limit_slider = mo.ui.slider(
+        start=10,
+        stop=35,
+        step=5,
+        value=20,
+        label="Max Players:"
+    )
+    return limit_slider, min_pts_slider, pos_select
+
+
+@app.cell
+def _(get_current_nfl_week, mo):
+    # Persistent Team Optimizer UI controls (week, mode, injury switches)
+    _curr_wk = get_current_nfl_week()
+    _week_options = {f"🏈 Week {_curr_wk} (Upcoming)": _curr_wk}
+    for _w in range(_curr_wk - 1, 0, -1):
+        _week_options[f"📜 Week {_w} (Completed)"] = _w
+
+    opt_week_dropdown = mo.ui.dropdown(
+        options=_week_options,
+        value=list(_week_options.keys())[0] if _week_options else None,
+        label="Week:"
+    )
+
+    opt_mode_switch = mo.ui.switch(
+        value=False
+    )
+
+    opt_injury_switch = mo.ui.switch(
+        value=True,
+        label="🛡️ Bench Inactive Players (Out / IR / Doubtful)"
+    )
+    return opt_injury_switch, opt_mode_switch, opt_week_dropdown
+
+
+@app.cell
+def _(DB_PATH, DEFAULT_LEAGUE_ID, DEFAULT_TEAM_NAME, mo):
+    # Persistent Team Selector UI control (shared across Team Analytics and Team Optimizer)
+    import sqlite3
+    _team_names = []
+    if DB_PATH.exists():
+        try:
+            _conn = sqlite3.connect(str(DB_PATH))
+            _cur = _conn.cursor()
+            _cur.execute(
+                "SELECT DISTINCT team_name FROM teams WHERE league_id = ? ORDER BY team_name",
+                (DEFAULT_LEAGUE_ID,)
+            )
+            _rows = _cur.fetchall()
+            _team_names = [r[0] for r in _rows if r[0]]
+            _conn.close()
+        except Exception:
+            pass
+
+    if not _team_names:
+        _team_names = [DEFAULT_TEAM_NAME] if DEFAULT_TEAM_NAME else ["wetschproblem"]
+
+    _default_val = DEFAULT_TEAM_NAME if DEFAULT_TEAM_NAME in _team_names else _team_names[0]
+
+    team_dropdown = mo.ui.dropdown(
+        options=_team_names,
+        value=_default_val,
+        label="Team:"
+    )
+    return team_dropdown,
+
+
+@app.cell
+def _(
+    limit_slider,
+    min_pts_slider,
+    mo,
+    nav_tabs,
+    opt_injury_switch,
+    opt_mode_switch,
+    opt_week_dropdown,
+    pos_select,
+    team_dropdown,
+):
+    # Filter bar renderer: displays active tab controls without re-instantiating them
     if nav_tabs.value == "📊 Position Scatter":
-        pos_select = mo.ui.radio(
-            options=["QB", "RB", "WR", "TE", "DEF", "K"],
-            value="QB",
-            inline=True,
-            label="Position:"
-        )
-        min_pts_slider = mo.ui.slider(
-            start=0,
-            stop=20,
-            step=1,
-            value=3,
-            label="Min Avg Points:"
-        )
-        limit_slider = mo.ui.slider(
-            start=10,
-            stop=35,
-            step=5,
-            value=20,
-            label="Max Players:"
-        )
         _filter_bar = mo.hstack([pos_select, min_pts_slider, limit_slider], justify="start", align="center", gap=2)
-        team_dropdown = None
-        opt_mode_switch = None
-        opt_injury_switch = None
-        opt_week_dropdown = None
     elif nav_tabs.value == "🛡️ Team Analytics":
-        pos_select = None
-        min_pts_slider = None
-        limit_slider = None
-        opt_mode_switch = None
-        opt_injury_switch = None
-        opt_week_dropdown = None
-
-        _team_options = {}
-        if df_teams is not None and not df_teams.empty:
-            for _, _r_team in df_teams.iterrows():
-                _team_options[f"{_r_team['team_name']} ({_r_team['wins']}-{_r_team['losses']})"] = _r_team['team_name']
-
-        team_dropdown = mo.ui.dropdown(
-            options=_team_options,
-            value=list(_team_options.keys())[0] if _team_options else None,
-            label="Select Team:"
-        )
         _filter_bar = mo.hstack([team_dropdown], justify="start", align="center", gap=2)
     elif nav_tabs.value == "⚡ Team Optimizer":
-        pos_select = None
-        min_pts_slider = None
-        limit_slider = None
-
-        _curr_wk = get_current_nfl_week()
-        _week_options = {f"🏈 Week {_curr_wk} (Upcoming)": _curr_wk}
-        for _w in range(_curr_wk - 1, 0, -1):
-            _week_options[f"📜 Week {_w} (Completed)"] = _w
-
-        opt_week_dropdown = mo.ui.dropdown(
-            options=_week_options,
-            value=list(_week_options.keys())[0] if _week_options else None,
-            label="Week:"
-        )
-
-        _team_options = {}
-        if df_teams is not None and not df_teams.empty:
-            for _, _r_team in df_teams.iterrows():
-                _team_options[f"{_r_team['team_name']} ({_r_team['wins']}-{_r_team['losses']})"] = _r_team['team_name']
-
-        team_dropdown = mo.ui.dropdown(
-            options=_team_options,
-            value=list(_team_options.keys())[0] if _team_options else None,
-            label="Team:"
-        )
-
-        opt_mode_switch = mo.ui.switch(
-            value=False
-        )
-
-        opt_injury_switch = mo.ui.switch(
-            value=True,
-            label="🛡️ Bench Inactive Players (Out / IR / Doubtful)"
-        )
-
         _divider1 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
         _divider2 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
         _divider3 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
@@ -249,25 +268,10 @@ def _(df_teams, get_current_nfl_week, mo, nav_tabs):
             opt_injury_switch
         ], justify="start", align="center", gap=0.7)
     else:
-        pos_select = None
-        min_pts_slider = None
-        limit_slider = None
-        team_dropdown = None
-        opt_mode_switch = None
-        opt_injury_switch = None
-        opt_week_dropdown = None
         _filter_bar = None
 
     _filter_bar if _filter_bar is not None else mo.md("")
-    return (
-        limit_slider,
-        min_pts_slider,
-        opt_injury_switch,
-        opt_mode_switch,
-        opt_week_dropdown,
-        pos_select,
-        team_dropdown,
-    )
+    return
 
 
 @app.cell
@@ -533,7 +537,7 @@ def _(
                 _view = mo.vstack([
                     _kpi_box,
                     _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
-                    _render_roster_table(_t['bench_df'], "🪑 Bench"),
+                    _render_roster_table(_t['bench_df'], "🛋️ Bench"),
                     _fixed_corner_badge
                 ], gap=1)
 
