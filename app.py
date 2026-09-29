@@ -207,7 +207,7 @@ def _(df_teams, get_current_nfl_week, mo, nav_tabs):
 
         opt_week_dropdown = mo.ui.dropdown(
             options=_week_options,
-            value=_curr_wk,
+            value=list(_week_options.keys())[0] if _week_options else None,
             label="Week:"
         )
 
