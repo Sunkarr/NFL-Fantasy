@@ -14,7 +14,7 @@ def _():
 
     from src.config import DB_PATH, DEFAULT_LEAGUE_ID, VERSION
     from src.db import format_last_sync, get_last_sync_time, load_league_data
-    from src.optimizer import optimize_team_lineup, render_optimizer_view
+    from src.optimizer import get_current_nfl_week, optimize_team_lineup, render_optimizer_view
     from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
     from src.sync import start_background_scheduler
     from src.visual import build_interactive_position_chart, get_owner_color_map
@@ -78,6 +78,7 @@ def _():
         get_team_roster_analytics,
         head_favicon,
         load_league_data,
+        get_current_nfl_week,
         mo,
         optimize_team_lineup,
         render_optimizer_view,
@@ -148,7 +149,7 @@ def _(df_teams, mo):
 
 
 @app.cell
-def _(df_teams, mo, nav_tabs):
+def _(df_teams, get_current_nfl_week, mo, nav_tabs):
     if nav_tabs.value == "📊 Position Scatter":
         pos_select = mo.ui.radio(
             options=["QB", "RB", "WR", "TE", "DEF", "K"],
@@ -174,12 +175,14 @@ def _(df_teams, mo, nav_tabs):
         team_dropdown = None
         opt_mode_switch = None
         opt_injury_switch = None
+        opt_week_dropdown = None
     elif nav_tabs.value == "🛡️ Team Analytics":
         pos_select = None
         min_pts_slider = None
         limit_slider = None
         opt_mode_switch = None
         opt_injury_switch = None
+        opt_week_dropdown = None
 
         _team_options = {}
         if df_teams is not None and not df_teams.empty:
@@ -196,6 +199,17 @@ def _(df_teams, mo, nav_tabs):
         pos_select = None
         min_pts_slider = None
         limit_slider = None
+
+        _curr_wk = get_current_nfl_week()
+        _week_options = {f"🏈 Week {_curr_wk} (Upcoming)": _curr_wk}
+        for _w in range(_curr_wk - 1, 0, -1):
+            _week_options[f"📜 Week {_w} (Completed)"] = _w
+
+        opt_week_dropdown = mo.ui.dropdown(
+            options=_week_options,
+            value=_curr_wk,
+            label="Week:"
+        )
 
         _team_options = {}
         if df_teams is not None and not df_teams.empty:
@@ -214,21 +228,24 @@ def _(df_teams, mo, nav_tabs):
 
         opt_injury_switch = mo.ui.switch(
             value=True,
-            label="🛡️ Ignore Injured (incl. Questionable)"
+            label="🛡️ Bench Inactive Players (Out / IR / Doubtful)"
         )
 
         _divider1 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
         _divider2 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
-        _label_proj = mo.md("<span style='font-size:0.83rem; font-weight:600; color:#334155; white-space:nowrap;'>🎯 Matchup Projections</span>")
-        _label_ppg = mo.md("<span style='font-size:0.83rem; font-weight:600; color:#334155; white-space:nowrap;'>📈 Season Average (PPG)</span>")
+        _divider3 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
+        _label_mode1 = mo.md("<span style='font-size:0.83rem; font-weight:600; color:#334155; white-space:nowrap;'>🎯 Matchup / Actual</span>")
+        _label_mode2 = mo.md("<span style='font-size:0.83rem; font-weight:600; color:#334155; white-space:nowrap;'>📈 Season PPG</span>")
 
         _filter_bar = mo.hstack([
             team_dropdown,
             _divider1,
-            _label_proj,
-            opt_mode_switch,
-            _label_ppg,
+            opt_week_dropdown,
             _divider2,
+            _label_mode1,
+            opt_mode_switch,
+            _label_mode2,
+            _divider3,
             opt_injury_switch
         ], justify="start", align="center", gap=0.7)
     else:
@@ -238,6 +255,7 @@ def _(df_teams, mo, nav_tabs):
         team_dropdown = None
         opt_mode_switch = None
         opt_injury_switch = None
+        opt_week_dropdown = None
         _filter_bar = None
 
     _filter_bar if _filter_bar is not None else mo.md("")
@@ -246,6 +264,7 @@ def _(df_teams, mo, nav_tabs):
         min_pts_slider,
         opt_injury_switch,
         opt_mode_switch,
+        opt_week_dropdown,
         pos_select,
         team_dropdown,
     )
@@ -264,6 +283,7 @@ def _(
     format_last_sync,
     get_last_sync_time,
     get_league_overview_analytics,
+    get_current_nfl_week,
     get_team_roster_analytics,
     limit_slider,
     min_pts_slider,
@@ -271,6 +291,7 @@ def _(
     nav_tabs,
     opt_injury_switch,
     opt_mode_switch,
+    opt_week_dropdown,
     optimize_team_lineup,
     owner_colors,
     pos_select,
@@ -521,13 +542,22 @@ def _(
             _view = mo.md("Please select a team.")
         else:
             _selected_team = team_dropdown.value
-            _mode = "ppg" if (opt_mode_switch and opt_mode_switch.value) else "projection"
+            _active_wk = get_current_nfl_week()
+            _target_wk = opt_week_dropdown.value if (opt_week_dropdown and opt_week_dropdown.value) else _active_wk
+
+            if opt_mode_switch and opt_mode_switch.value:
+                _mode = "ppg"
+            elif _target_wk < _active_wk:
+                _mode = "retro"
+            else:
+                _mode = "projection"
+
             _ignore_inj = opt_injury_switch.value if opt_injury_switch else True
 
             _opt_res = optimize_team_lineup(
                 team_name=_selected_team,
                 mode=_mode,
-                selected_week=None,
+                selected_week=_target_wk,
                 ignore_injured=_ignore_inj,
                 df_teams=df_teams,
                 df_rosters=df_current_rosters,

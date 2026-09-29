@@ -95,7 +95,7 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
     # Fetch NFL active state for dynamic current week
     try:
         st_res = requests.get("https://api.sleeper.app/v1/state/nfl", timeout=5).json()
-        current_week = int(st_res.get("display_week") or st_res.get("week") or 1)
+        current_week = int(st_res.get("week") or st_res.get("display_week") or 1)
     except Exception:
         current_week = int(league_data.get("settings", {}).get("leg", 1))
 

@@ -24,7 +24,7 @@ def get_current_nfl_week() -> int:
 
     try:
         res = requests.get("https://api.sleeper.app/v1/state/nfl", timeout=4).json()
-        wk = int(res.get("display_week") or res.get("week") or 3)
+        wk = int(res.get("week") or res.get("display_week") or 4)
         _current_week_cache = (wk, time.time())
         return wk
     except Exception:
@@ -137,8 +137,11 @@ def get_matchup_pairings(
     data = None
     if cache_file.exists():
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            mtime = cache_file.stat().st_mtime
+            # Cache valid for 30 minutes to capture finalized game scores
+            if (time.time() - mtime) < 1800:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
         except Exception:
             data = None
 
@@ -216,7 +219,7 @@ def find_top_free_agents(
     # Exclude rostered players and severely injured players
     fa_candidates = p_info[
         (~p_info["player_id"].isin(rostered_pids)) &
-        (~p_info["injury_status"].isin(["Out", "IR", "PUP", "Doubtful", "Questionable", "NA", "Sus"]))
+        (~p_info["injury_status"].isin(["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]))
     ].copy()
 
     if fa_candidates.empty:
@@ -364,6 +367,9 @@ def optimize_team_lineup(
     else:
         roster_df["injury_status"] = roster_df["injury_status"].fillna("Healthy")
 
+    severe_injuries = ["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]
+    if ignore_injured and mode != "retro":
+        roster_df.loc[roster_df["injury_status"].isin(severe_injuries), "score"] = 0.0
     roster_df["score"] = roster_df["score"].round(2)
 
     # 2. Extract Current Actual Lineup Slot-by-Slot
@@ -438,7 +444,7 @@ def optimize_team_lineup(
         v["slot"] = slot_display_names.get(k, k)
 
     # 3. Calculate Mathematically Optimal Lineup Slot-by-Slot
-    severe_injuries = ["Out", "IR", "PUP", "Doubtful", "Questionable", "NA", "Sus"]
+    # severe_injuries defined above: ["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]
     if ignore_injured and mode != "retro":
         eligible_pool = roster_df[~roster_df["injury_status"].isin(severe_injuries)].copy()
         if len(eligible_pool) < 9:
@@ -646,7 +652,7 @@ def optimize_team_lineup(
     # 6. Derive Swaps (cards) directly from table swaps to ensure 100% synchronization!
     swaps = []
     for r in comparison_rows:
-        if r["is_swap"]:
+        if r["is_swap"] and r["gain"] > 0:
             swaps.append({
                 "slot": r["slot"],
                 "player_in": r["opt_player"],

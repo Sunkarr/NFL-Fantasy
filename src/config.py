@@ -11,8 +11,8 @@ try:
 except ImportError:
     pass
 
-# Application Version
-VERSION = "1.7.2"
+# Application Version (configured in .env)
+VERSION = os.getenv("VERSION", "1.7.3")
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent

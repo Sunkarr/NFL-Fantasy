@@ -26,6 +26,7 @@ services:
       - TEAM_NAME=wetschproblem
       - TZ=Europe/Zurich
       - SYNC_CRON=0,30 * * * *
+      - VERSION=${VERSION:-1.7.3}
     volumes:
       - ./data:/app/data
       - ./src:/app/src
