@@ -17,10 +17,34 @@ def init_db(db_path: Path = DB_PATH):
     cur = conn.cursor()
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS players (\n            player_id TEXT PRIMARY KEY,\n            full_name TEXT,\n            position TEXT,\n            nfl_team TEXT,\n            status TEXT,\n            injury_status TEXT,\n            age INTEGER,\n            years_exp INTEGER,\n            updated_at TIMESTAMP\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS players (
+            player_id TEXT PRIMARY KEY,
+            full_name TEXT,
+            position TEXT,
+            nfl_team TEXT,
+            status TEXT,
+            injury_status TEXT,
+            age INTEGER,
+            years_exp INTEGER,
+            updated_at TIMESTAMP
+        )
+    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS teams (\n            roster_id INTEGER,\n            league_id TEXT,\n            owner_id TEXT,\n            team_name TEXT,\n            owner_name TEXT,\n            wins INTEGER,\n            losses INTEGER,\n            fpts REAL,\n            fpts_against REAL DEFAULT 0.0,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (roster_id, league_id)\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS teams (
+            roster_id INTEGER,
+            league_id TEXT,
+            owner_id TEXT,
+            team_name TEXT,
+            owner_name TEXT,
+            wins INTEGER,
+            losses INTEGER,
+            fpts REAL,
+            fpts_against REAL DEFAULT 0.0,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (roster_id, league_id)
+        )
+    ''')
 
     # Ensure fpts_against exists if table was previously created
     cur.execute("PRAGMA table_info(teams);")
@@ -29,19 +53,68 @@ def init_db(db_path: Path = DB_PATH):
         cur.execute("ALTER TABLE teams ADD COLUMN fpts_against REAL DEFAULT 0.0;")
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS current_rosters (\n            league_id TEXT,\n            roster_id INTEGER,\n            player_id TEXT,\n            is_starter INTEGER,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, roster_id, player_id)\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS current_rosters (
+            league_id TEXT,
+            roster_id INTEGER,
+            player_id TEXT,
+            is_starter INTEGER,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (league_id, roster_id, player_id)
+        )
+    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_matchup_points (\n            league_id TEXT,\n            season TEXT,\n            week INTEGER,\n            roster_id INTEGER,\n            player_id TEXT,\n            points REAL,\n            started INTEGER,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, season, week, roster_id, player_id)\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS weekly_matchup_points (
+            league_id TEXT,
+            season TEXT,
+            week INTEGER,
+            roster_id INTEGER,
+            player_id TEXT,
+            points REAL,
+            started INTEGER,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (league_id, season, week, roster_id, player_id)
+        )
+    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_team_matchups (\n            league_id TEXT,\n            season TEXT,\n            week INTEGER,\n            roster_id INTEGER,\n            matchup_id INTEGER,\n            points REAL,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, season, week, roster_id)\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS weekly_team_matchups (
+            league_id TEXT,
+            season TEXT,
+            week INTEGER,
+            roster_id INTEGER,
+            matchup_id INTEGER,
+            points REAL,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (league_id, season, week, roster_id)
+        )
+    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_nfl_stats (\n            season TEXT,\n            week INTEGER,\n            player_id TEXT,\n            points REAL,\n            pass_yd REAL,\n            pass_td REAL,\n            pass_int REAL,\n            rush_yd REAL,\n            rush_td REAL,\n            rec REAL,\n            rec_yd REAL,\n            rec_td REAL,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (season, week, player_id)\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS weekly_nfl_stats (
+            season TEXT,
+            week INTEGER,
+            player_id TEXT,
+            points REAL,
+            pass_yd REAL,
+            pass_td REAL,
+            pass_int REAL,
+            rush_yd REAL,
+            rush_td REAL,
+            rec REAL,
+            rec_yd REAL,
+            rec_td REAL,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (season, week, player_id)
+        )
+    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS sync_metadata (\n            key TEXT PRIMARY KEY,\n            value TEXT\n        )\n    ''')
+        CREATE TABLE IF NOT EXISTS sync_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
 
     conn.commit()
     conn.close()
@@ -113,69 +186,58 @@ def get_active_season(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_I
     if db_path.exists():
         conn = get_connection(db_path)
         cur = conn.cursor()
-        cur.execute(
-            "SELECT season FROM weekly_matchup_points WHERE league_id = ? ORDER BY season DESC LIMIT 1",
-            (league_id,)
-        )
-        row = cur.fetchone()
-        conn.close()
-        if row and row[0]:
-            return str(row[0])
+        try:
+            cur.execute(
+                "SELECT DISTINCT season FROM weekly_matchup_points WHERE league_id = ? ORDER BY season DESC LIMIT 1",
+                (league_id,)
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                conn.close()
+                return str(row[0])
+        except Exception:
+            pass
+        finally:
+            conn.close()
 
     return str(datetime.datetime.now().year)
-
-
-def get_available_seasons(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> list[str]:
-    """Retrieve all available seasons stored in the database for the given league."""
-    if not db_path.exists():
-        return []
-    conn = get_connection(db_path)
-    cur = conn.cursor()
-    cur.execute("SELECT DISTINCT season FROM weekly_matchup_points WHERE league_id = ? ORDER BY season DESC", (league_id,))
-    seasons = [row[0] for row in cur.fetchall() if row[0]]
-    if not seasons:
-        cur.execute("SELECT DISTINCT season FROM weekly_nfl_stats ORDER BY season DESC")
-        seasons = [row[0] for row in cur.fetchall() if row[0]]
-    conn.close()
-    return seasons
 
 
 def load_league_data(
     db_path: Path = DB_PATH,
     league_id: str = DEFAULT_LEAGUE_ID,
     season: Optional[str] = None
-) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-    """
-    Load core relational datasets for dashboards.
-    Filters weekly stats and matchup points to the specified (or most recent active) season
-    to ensure multi-year separation.
-    """
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Load core dataframes for the league strictly filtered to the active season."""
     if not db_path.exists():
-        return None, None, None, None
+        empty = pd.DataFrame()
+        return empty, empty, empty, empty
 
     conn = get_connection(db_path)
 
-    # Detect active season if not provided
+    # Resolve active season if not provided
     if season is None:
         season = get_active_season(db_path, league_id)
 
     # 1. Teams
-    teams = pd.read_sql_query(
-        "SELECT roster_id, team_name, owner_name, wins, losses, fpts, fpts_against FROM teams WHERE league_id = ? ORDER BY wins DESC, fpts DESC",
-        conn, params=(league_id,)
-    )
+    teams = pd.read_sql_query('''
+        SELECT roster_id, league_id, owner_id, team_name, owner_name, wins, losses, fpts, fpts_against
+        FROM teams
+        WHERE league_id = ?
+        ORDER BY wins DESC, fpts DESC
+    ''', conn, params=(league_id,))
 
-    # 2. Current Rosters with player metadata
+    # 2. Current Rosters
     rosters = pd.read_sql_query('''
-        SELECT r.roster_id, t.team_name, r.player_id, r.is_starter, p.full_name as player_name,
-               p.position, p.nfl_team, p.injury_status
+        SELECT r.roster_id, r.league_id, r.player_id, r.is_starter,
+               p.full_name as player_name, p.position, p.nfl_team, p.status, p.injury_status,
+               p.age, p.years_exp
         FROM current_rosters r
-        JOIN teams t ON r.roster_id = t.roster_id AND r.league_id = t.league_id
         JOIN players p ON r.player_id = p.player_id
         WHERE r.league_id = ?
     ''', conn, params=(league_id,))
 
-    # 3. Matchup Points (filtered strictly to season)
+    # 3. Weekly Matchup Points (filtered strictly to active season)
     if season:
         matchups = pd.read_sql_query('''
             SELECT m.season, m.week, m.roster_id, t.team_name, m.player_id, p.full_name as player_name,
@@ -246,7 +308,7 @@ def load_team_matchups(
             WHERE m.league_id = ? AND m.season = ?
             ORDER BY m.week, m.matchup_id, m.points DESC
         ''', conn, params=(league_id, season))
-        if not df.empty:
+        if not df.empty and (df['points'] > 0).any():
             conn.close()
             return df
     except Exception:

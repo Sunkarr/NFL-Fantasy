@@ -76,44 +76,36 @@ def sync_players(db_path: Path = DB_PATH, cache_file: Path = PLAYERS_CACHE_FILE,
         (player_id, full_name, position, nfl_team, status, injury_status, age, years_exp, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', rows)
-
     conn.commit()
     conn.close()
     return len(rows)
 
 
 def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = DB_PATH) -> Tuple[str, int]:
-    """Sync league info, teams, and current rosters."""
-    init_db(db_path)
+    """Sync league info, owners, standings, and current rosters."""
     l_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}", timeout=10)
     l_res.raise_for_status()
-    league_data = l_res.json()
+    league_info = l_res.json()
+    season = str(league_info.get("season", datetime.datetime.now().year))
+    current_week = int(league_info.get("settings", {}).get("leg", 1))
 
-    season = league_data.get("season", str(datetime.datetime.now().year))
-    # Sleeper 'leg' represents the current active NFL week (typically 1 to 18)
-    current_week = league_data.get("settings", {}).get("leg", 1)
-
-    # Persist active season & current week in sync_metadata for reliable global multi-year separation
-    set_sync_metadata("active_season", str(season), db_path=db_path)
-    set_sync_metadata("current_week", str(current_week), db_path=db_path)
-    if "scoring_settings" in league_data:
-        set_sync_metadata("league_scoring_settings", json.dumps(league_data["scoring_settings"]), db_path=db_path)
+    # Persist detected season in metadata
+    set_sync_metadata("active_season", season, db_path=db_path)
 
     u_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/users", timeout=10)
     u_res.raise_for_status()
-    users = u_res.json()
-
-    user_map = {}
-    for u in users:
-        uid = u.get("user_id")
-        dname = u.get("display_name", "Unknown")
-        mdata = u.get("metadata") or {}
-        tname = mdata.get("team_name") or dname
-        user_map[uid] = (dname, tname)
+    users_data = u_res.json()
+    user_map = {
+        u["user_id"]: {
+            "owner_name": u.get("display_name", "Unknown"),
+            "team_name": u.get("metadata", {}).get("team_name") or u.get("display_name", "Unknown")
+        }
+        for u in users_data
+    }
 
     r_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/rosters", timeout=10)
     r_res.raise_for_status()
-    rosters = r_res.json()
+    rosters_data = r_res.json()
 
     conn = get_connection(db_path)
     cur = conn.cursor()
@@ -122,21 +114,25 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
     team_rows = []
     roster_rows = []
 
-    cur.execute("DELETE FROM current_rosters WHERE league_id = ?", (league_id,))
-
-    for r in rosters:
-        rid = r.get("roster_id")
+    for r in rosters_data:
+        rid = r["roster_id"]
         oid = r.get("owner_id")
-        dname, tname = user_map.get(oid, (f"Owner {rid}", f"Team {rid}"))
-        wins = r.get("settings", {}).get("wins", 0)
-        losses = r.get("settings", {}).get("losses", 0)
-        fpts = r.get("settings", {}).get("fpts", 0) + (r.get("settings", {}).get("fpts_decimal", 0) / 100.0)
-        fpts_against = r.get("settings", {}).get("fpts_against", 0) + (r.get("settings", {}).get("fpts_against_decimal", 0) / 100.0)
+        user_meta = user_map.get(oid, {})
+        owner_name = user_meta.get("owner_name", f"Owner {rid}")
+        team_name = user_meta.get("team_name", owner_name)
 
-        team_rows.append((rid, league_id, oid, tname, dname, wins, losses, fpts, fpts_against, now))
+        settings = r.get("settings", {})
+        wins = settings.get("wins", 0)
+        losses = settings.get("losses", 0)
+        fpts = float(settings.get("fpts", 0.0) + (settings.get("fpts_decimal", 0) / 100.0))
+        fpts_against = float(settings.get("fpts_against", 0.0) + (settings.get("fpts_against_decimal", 0) / 100.0))
 
+        team_rows.append((rid, league_id, oid, team_name, owner_name, wins, losses, fpts, fpts_against, now))
+
+        players = r.get("players") or []
         starters = set(r.get("starters") or [])
-        for pid in (r.get("players") or []):
+
+        for pid in players:
             roster_rows.append((league_id, rid, str(pid), 1 if str(pid) in starters else 0, now))
 
     cur.executemany('''
@@ -169,7 +165,16 @@ def sync_weekly_data(
     now = datetime.datetime.now().isoformat()
 
     cur.execute("SELECT DISTINCT week FROM weekly_matchup_points WHERE league_id = ? AND season = ?", (league_id, season))
-    existing_weeks = {row[0] for row in cur.fetchall()}
+    existing_pts_weeks = {row[0] for row in cur.fetchall()}
+
+    try:
+        cur.execute("SELECT DISTINCT week FROM weekly_team_matchups WHERE league_id = ? AND season = ? AND points > 0", (league_id, season))
+        existing_team_weeks = {row[0] for row in cur.fetchall()}
+    except Exception:
+        existing_team_weeks = set()
+
+    # A week is only considered existing if both player points and team matchups are present
+    existing_weeks = existing_pts_weeks & existing_team_weeks
 
     if mode == "incremental":
         all_possible = set(range(1, max_week + 1))
@@ -313,11 +318,22 @@ def _scheduler_worker(league_id: str, db_path: Path):
     Background worker thread running on the exact hour and half-hour (:00 and :30).
     Runs indefinitely without blocking main thread.
     """
-    # Proactively check if DB needs sync on thread start (if missing, empty, or older than 30 mins)
+    # Proactively check if DB needs sync on thread start (if missing, empty, or older than 30 mins, or missing weekly_team_matchups)
     try:
         from src.db import get_last_sync_time
         last_dt = get_last_sync_time(db_path)
-        if last_dt is None or (datetime.datetime.now() - last_dt).total_seconds() > 1800:
+        has_matchups = False
+        if db_path.exists():
+            try:
+                conn_chk = get_connection(db_path)
+                cur_chk = conn_chk.cursor()
+                cur_chk.execute("SELECT COUNT(*) FROM weekly_team_matchups WHERE points > 0")
+                has_matchups = (cur_chk.fetchone()[0] > 0)
+                conn_chk.close()
+            except Exception:
+                has_matchups = False
+
+        if last_dt is None or not has_matchups or (datetime.datetime.now() - last_dt).total_seconds() > 1800:
             print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [Sync Scheduler] Triggering initial background sync...")
             run_full_sync(league_id=league_id, mode="incremental", db_path=db_path)
     except Exception as e:
@@ -369,8 +385,10 @@ if __name__ == "__main__":
     parser.add_argument("--force-players", action="store_true", help="Force re-download of players database")
     args = parser.parse_args()
 
+    init_db(DB_PATH)
     run_full_sync(
         league_id=args.league_id,
         mode=args.mode,
-        force_players=args.force_players
+        force_players=args.force_players,
+        db_path=DB_PATH
     )
