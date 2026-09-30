@@ -402,6 +402,11 @@ def _(
                                 <div style="font-size:0.74rem; color:#94a3b8;">{len(_t['bench_df'])} Bench Options</div>
                             </div>
                             <div>
+                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Ø Pos Rank</div>
+                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">#{_t['avg_pos_rank_starters']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Starters</span></div>
+                                <div style="font-size:0.74rem; color:#94a3b8;">Bench: #{_t['avg_pos_rank_bench']:.1f} • All: #{_t['avg_pos_rank_total']:.1f}</div>
+                            </div>
+                            <div>
                                 <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">⭐ Top 10 Assets</div>
                                 <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['top_10_count']} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Players</span></div>
                                 <div style="font-size:0.74rem; color:#94a3b8;">Top-10 at their position</div>
@@ -696,6 +701,16 @@ def _(
                     <td style='padding:10px 14px; text-align:right; font-weight:600; color:#1e293b; width:90px;'>{_r_st['starter_ppg']:.1f}</td>
                     <td style='padding:10px 14px; text-align:right; color:#64748b; width:85px;'>{_r_st['bench_ppg']:.1f}</td>
                     <td style='padding:10px 14px; text-align:center; width:95px;'>
+                        <span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:3px 9px; font-weight:700; font-size:0.82rem;' title='Ø Positional Rank aller Starter (ohne IR) | Gesamt-Team Ø: #{_r_st['avg_pos_rank_total']:.1f}'>
+                            #{_r_st['avg_pos_rank_starters']:.1f}
+                        </span>
+                    </td>
+                    <td style='padding:10px 14px; text-align:center; width:95px;'>
+                        <span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:3px 9px; font-weight:600; font-size:0.82rem;' title='Ø Positional Rank aller Bench-Spieler (ohne IR) | Gesamt-Team Ø: #{_r_st['avg_pos_rank_total']:.1f}'>
+                            #{_r_st['avg_pos_rank_bench']:.1f}
+                        </span>
+                    </td>
+                    <td style='padding:10px 14px; text-align:center; width:95px;'>
                         <span style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 10px; font-weight:700; font-size:0.82rem; color:#0f172a;'>
                             ⭐ {_r_st['top_10_count']}
                         </span>
@@ -731,6 +746,8 @@ def _(
                                     <th style='padding:10px 14px; text-align:right; width:80px;'>Diff (+/-)</th>
                                     <th style='padding:10px 14px; text-align:right; width:90px;'>Starter PPG</th>
                                     <th style='padding:10px 14px; text-align:right; width:85px;'>Bench PPG</th>
+                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Ø Starter Rank</th>
+                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Ø Bench Rank</th>
                                     <th style='padding:10px 14px; text-align:center; width:95px;'>Top 10 Assets</th>
                                     <th style='padding:10px 14px; text-align:center; width:85px;'>Health</th>
                                     <th style='padding:10px 14px; text-align:center; width:95px;'>Power Index</th>

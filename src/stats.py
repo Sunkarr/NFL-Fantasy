@@ -76,6 +76,7 @@ def get_team_roster_analytics(
     - Top-10 elite asset metrics
     - Positional output breakdown and total PPG
     - Starters and bench injury lists for detailed tooltip pinpoints
+    - Average positional rank for Starters, Bench, and Total (excluding IR)
     """
     if df_rosters is None or df_rosters.empty or df_player_stats is None or df_player_stats.empty:
         return {}
@@ -160,6 +161,25 @@ def get_team_roster_analytics(
     starter_inj_details = format_inj_list(injured_starters)
     bench_inj_details = format_inj_list(injured_bench)
 
+    # Average Positional Rank within position (excluding IR, only active starters & bench)
+    non_ir_roster = merged[merged['injury_status'].astype(str).str.strip().str.upper() != 'IR'].copy()
+    non_ir_starters = non_ir_roster[non_ir_roster['is_starter'] == 1]
+    non_ir_bench = non_ir_roster[non_ir_roster['is_starter'] == 0]
+
+    starters_ranks = non_ir_starters[non_ir_starters['pos_rank'] < 99]['pos_rank']
+    if starters_ranks.empty:
+        starters_ranks = non_ir_starters['pos_rank']
+    bench_ranks = non_ir_bench[non_ir_bench['pos_rank'] < 99]['pos_rank']
+    if bench_ranks.empty:
+        bench_ranks = non_ir_bench['pos_rank']
+    all_ranks = non_ir_roster[non_ir_roster['pos_rank'] < 99]['pos_rank']
+    if all_ranks.empty:
+        all_ranks = non_ir_roster['pos_rank']
+
+    avg_pos_rank_starters = round(float(starters_ranks.mean()), 1) if not starters_ranks.empty else 0.0
+    avg_pos_rank_bench = round(float(bench_ranks.mean()), 1) if not bench_ranks.empty else 0.0
+    avg_pos_rank_total = round(float(all_ranks.mean()), 1) if not all_ranks.empty else 0.0
+
     return {
         'team_name': team_name,
         'owner_name': team_info['owner_name'] if team_info is not None else team_name,
@@ -179,7 +199,10 @@ def get_team_roster_analytics(
         'total_starters_count': len(starters_df),
         'starters_df': starters_df,
         'bench_df': bench_df,
-        'all_roster_df': merged
+        'all_roster_df': merged,
+        'avg_pos_rank_starters': avg_pos_rank_starters,
+        'avg_pos_rank_bench': avg_pos_rank_bench,
+        'avg_pos_rank_total': avg_pos_rank_total
     }
 
 
@@ -193,6 +216,7 @@ def get_league_overview_analytics(
     - Standings table ordered by Wins DESC, then Points For DESC
     - Points For (PF), Points Against (PA), Point Differential (+/-)
     - Starter PPG, Bench Depth PPG, Top-10 Elite Asset Counts, Roster Health
+    - Average positional rank for starters and bench (excluding IR)
     - Composite Power Rating
     - League summary KPIs (Actual league average PF per team/week & current starter projection)
     """
@@ -236,6 +260,9 @@ def get_league_overview_analytics(
             'diff': diff,
             'starter_ppg': an['starter_ppg'],
             'bench_ppg': an['bench_ppg'],
+            'avg_pos_rank_starters': an['avg_pos_rank_starters'],
+            'avg_pos_rank_bench': an['avg_pos_rank_bench'],
+            'avg_pos_rank_total': an['avg_pos_rank_total'],
             'top_10_count': an['top_10_count'],
             'top_5_count': an['top_5_count'],
             'healthy_count': healthy_count,
