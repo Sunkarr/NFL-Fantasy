@@ -48,20 +48,26 @@ def sync_players(db_path: Path = DB_PATH, cache_file: Path = PLAYERS_CACHE_FILE,
     for pid, p in players_data.items():
         name = p.get("full_name")
         if not name:
-            name = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
-        if not name:
-            name = p.get("last_name") or str(pid)
+            fname = p.get("first_name", "")
+            lname = p.get("last_name", "")
+            name = f"{fname} {lname}".strip() or "Unknown"
 
-        pos = p.get("position") or (p.get("fantasy_positions") or ["UNK"])[0]
+        pos = p.get("position") or "UNKNOWN"
+        team = p.get("team") or "FA"
+        status = p.get("status") or "Active"
+        inj = p.get("injury_status") or "Healthy"
+        age = p.get("age")
+        years_exp = p.get("years_exp")
+
         rows.append((
             str(pid),
             name,
             pos,
-            p.get("team") or "FA",
-            p.get("status") or "Active",
-            p.get("injury_status") or "Healthy",
-            p.get("age"),
-            p.get("years_exp"),
+            team,
+            status,
+            inj,
+            int(age) if age is not None else None,
+            int(years_exp) if years_exp is not None else None,
             now
         ))
 
@@ -77,46 +83,41 @@ def sync_players(db_path: Path = DB_PATH, cache_file: Path = PLAYERS_CACHE_FILE,
 
 
 def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = DB_PATH) -> Tuple[str, int]:
-    """Sync league metadata, users, rosters, and current ownership snapshot."""
+    """Sync league info, teams, and current rosters."""
     init_db(db_path)
-    now = datetime.datetime.now().isoformat()
-
-    # 1. League metadata
     l_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}", timeout=10)
     l_res.raise_for_status()
     league_data = l_res.json()
-    season = league_data.get("season", "2026")
 
-    # Persist league custom scoring settings to database metadata
-    scoring_settings = league_data.get("scoring_settings", {})
-    if scoring_settings:
-        set_sync_metadata("league_scoring_settings", json.dumps(scoring_settings), db_path=db_path)
+    season = league_data.get("season", str(datetime.datetime.now().year))
+    # Sleeper 'leg' represents the current active NFL week (typically 1 to 18)
+    current_week = league_data.get("settings", {}).get("leg", 1)
 
-    # Fetch NFL active state for dynamic current week
-    try:
-        st_res = requests.get("https://api.sleeper.app/v1/state/nfl", timeout=5).json()
-        current_week = int(st_res.get("week") or st_res.get("display_week") or 1)
-    except Exception:
-        current_week = int(league_data.get("settings", {}).get("leg", 1))
+    # Persist active season & current week in sync_metadata for reliable global multi-year separation
+    set_sync_metadata("active_season", str(season), db_path=db_path)
+    set_sync_metadata("current_week", str(current_week), db_path=db_path)
+    if "scoring_settings" in league_data:
+        set_sync_metadata("league_scoring_settings", json.dumps(league_data["scoring_settings"]), db_path=db_path)
 
-    # 2. Users (display names & team names)
     u_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/users", timeout=10)
     u_res.raise_for_status()
-    users_data = u_res.json()
+    users = u_res.json()
+
     user_map = {}
-    for u in users_data:
+    for u in users:
         uid = u.get("user_id")
-        dname = u.get("display_name")
-        tname = u.get("metadata", {}).get("team_name") or dname
+        dname = u.get("display_name", "Unknown")
+        mdata = u.get("metadata") or {}
+        tname = mdata.get("team_name") or dname
         user_map[uid] = (dname, tname)
 
-    # 3. Rosters
     r_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/rosters", timeout=10)
     r_res.raise_for_status()
     rosters = r_res.json()
 
     conn = get_connection(db_path)
     cur = conn.cursor()
+    now = datetime.datetime.now().isoformat()
 
     team_rows = []
     roster_rows = []
@@ -177,6 +178,7 @@ def sync_weekly_data(
         weeks_to_sync = list(range(1, max_week + 1))
 
     matchup_rows = []
+    team_matchup_rows = []
     stats_rows = []
 
     for w in weeks_to_sync:
@@ -187,6 +189,20 @@ def sync_weekly_data(
                 matchups = m_res.json()
                 for m in matchups:
                     rid = m.get("roster_id")
+                    mid = m.get("matchup_id")
+                    team_pts = float(m.get("points") or 0.0)
+
+                    if rid is not None and mid is not None:
+                        team_matchup_rows.append((
+                            league_id,
+                            season,
+                            w,
+                            rid,
+                            mid,
+                            team_pts,
+                            now
+                        ))
+
                     players_pts = m.get("players_points") or {}
                     starters = set(m.get("starters") or [])
 
@@ -230,14 +246,21 @@ def sync_weekly_data(
 
     if matchup_rows:
         cur.executemany('''
-            INSERT OR REPLACE INTO weekly_matchup_points
+            INSERT OR REPLACE INTO weekly_matchup_points 
             (league_id, season, week, roster_id, player_id, points, started, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', matchup_rows)
 
+    if team_matchup_rows:
+        cur.executemany('''
+            INSERT OR REPLACE INTO weekly_team_matchups
+            (league_id, season, week, roster_id, matchup_id, points, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', team_matchup_rows)
+
     if stats_rows:
         cur.executemany('''
-            INSERT OR REPLACE INTO weekly_nfl_stats
+            INSERT OR REPLACE INTO weekly_nfl_stats 
             (season, week, player_id, points, pass_yd, pass_td, pass_int, rush_yd, rush_td, rec, rec_yd, rec_td, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', stats_rows)

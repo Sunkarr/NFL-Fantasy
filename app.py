@@ -11,11 +11,17 @@ app = marimo.App(
 def _():
     import marimo as mo
     import pandas as pd
+    import numpy as np
 
     from src.config import DB_PATH, DEFAULT_LEAGUE_ID, DEFAULT_TEAM_NAME, VERSION
-    from src.db import format_last_sync, get_last_sync_time, load_league_data
+    from src.db import format_last_sync, get_last_sync_time, load_league_data, load_team_matchups
     from src.optimizer import get_current_nfl_week, optimize_team_lineup, render_optimizer_view
-    from src.stats import compute_player_aggregates, get_league_overview_analytics, get_team_roster_analytics
+    from src.stats import (
+        compute_player_aggregates,
+        get_league_overview_analytics,
+        get_team_roster_analytics,
+        get_luck_and_all_play_analytics
+    )
     from src.sync import start_background_scheduler
     from src.visual import build_interactive_position_chart, get_owner_color_map
 
@@ -75,12 +81,15 @@ def _():
         format_last_sync,
         get_last_sync_time,
         get_league_overview_analytics,
+        get_luck_and_all_play_analytics,
         get_owner_color_map,
         get_team_roster_analytics,
         head_favicon,
         load_league_data,
+        load_team_matchups,
         get_current_nfl_week,
         mo,
+        np,
         optimize_team_lineup,
         render_optimizer_view,
     )
@@ -101,6 +110,7 @@ def _(mo):
     )
     nav_tabs = mo.ui.tabs({
         "🏆 League Overview": mo.md(""),
+        "🍀 Luck & All-Play": mo.md(""),
         "🛡️ Team Analytics": mo.md(""),
         "⚡ Team Optimizer": mo.md(""),
         "📊 Position Scatter": mo.md("")
@@ -117,10 +127,12 @@ def _(
     compute_player_aggregates,
     get_owner_color_map,
     load_league_data,
+    load_team_matchups,
     refresh_btn,
 ):
     _ = refresh_btn.value  # Reactive dependency: re-runs when refresh timer ticks or button clicked
     df_teams, df_current_rosters, df_matchups, df_nfl_stats = load_league_data(DB_PATH, DEFAULT_LEAGUE_ID)
+    df_team_matchups = load_team_matchups(DB_PATH, DEFAULT_LEAGUE_ID)
     df_player_stats = compute_player_aggregates(df_nfl_stats) if df_nfl_stats is not None else None
 
     unique_teams = sorted([t for t in df_teams['team_name'].unique()]) if df_teams is not None and not df_teams.empty else []
@@ -129,6 +141,7 @@ def _(
         df_current_rosters,
         df_matchups,
         df_player_stats,
+        df_team_matchups,
         df_teams,
         owner_colors,
         unique_teams,
@@ -283,16 +296,19 @@ def _(
     df_current_rosters,
     df_matchups,
     df_player_stats,
+    df_team_matchups,
     df_teams,
     format_last_sync,
+    get_current_nfl_week,
     get_last_sync_time,
     get_league_overview_analytics,
-    get_current_nfl_week,
+    get_luck_and_all_play_analytics,
     get_team_roster_analytics,
     limit_slider,
     min_pts_slider,
     mo,
     nav_tabs,
+    np,
     opt_injury_switch,
     opt_mode_switch,
     opt_week_dropdown,
@@ -316,14 +332,7 @@ def _(
 
     # Fixed Floating Bottom-Right Corner Badge with Version & Last Fetch
     _fixed_corner_badge = mo.Html(
-        f"""
-        <div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.76rem; color: #475569;">
-            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);"></span>
-            <span style="font-weight: 700; color: #0f172a;">v{VERSION}</span>
-            <span style="color: #cbd5e1;">•</span>
-            <span style="color: #64748b; font-size: 0.72rem; cursor: help;" title="{_last_fetch_title}">Last data fetch: {_last_fetch_str}</span>
-        </div>
-        """
+        f"""<div style="position: fixed; bottom: 14px; right: 16px; z-index: 9999; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; border-radius: 20px; padding: 6px 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.76rem; color: #475569;"><span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);"></span><span style="font-weight: 700; color: #0f172a;">v{VERSION}</span><span style="color: #cbd5e1;">•</span><span style="color: #64748b; font-size: 0.72rem; cursor: help;" title="{_last_fetch_title}">Last data fetch: {_last_fetch_str}</span></div>"""
     )
 
     if nav_tabs.value == "📊 Position Scatter":
@@ -373,58 +382,11 @@ def _(
                     _val = _t['pos_breakdown'].get(_p, 0.0)
                     _p_col = _pos_colors.get(_p, '#64748b')
                     _pos_pills.append(
-                        f"""
-                        <div style="display:flex; align-items:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:4px 10px;">
-                            <span style="font-weight:700; font-size:0.75rem; color:{_p_col};">{_p}</span>
-                            <span style="font-weight:600; font-size:0.82rem; color:#1e293b;">{_val:.1f} <span style="font-size:0.7rem; color:#94a3b8; font-weight:normal;">PPG</span></span>
-                        </div>
-                        """
+                        f"""<div style="display:flex; align-items:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:4px 10px;"><span style="font-weight:700; font-size:0.75rem; color:{_p_col};">{_p}</span><span style="font-weight:600; font-size:0.82rem; color:#1e293b;">{_val:.1f} <span style="font-size:0.7rem; color:#94a3b8; font-weight:normal;">PPG</span></span></div>"""
                     )
 
-                _kpi_box = mo.md(
-                    f"""
-                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:18px 22px; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,0.03); font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                        <!-- Top KPI Row -->
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:16px; padding-bottom:16px; border-bottom:1px solid #f1f5f9;">
-                            <div>
-                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Team Record</div>
-                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['wins']} - {_t['losses']}</div>
-                                <div style="font-size:0.74rem; color:#94a3b8;">Total: {_t['total_fpts']:.1f} FPTS</div>
-                            </div>
-                            <div>
-                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Starting PPG</div>
-                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div>
-                                <div style="font-size:0.74rem; color:#94a3b8;">Avg Starter Output / Wk</div>
-                            </div>
-                            <div>
-                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Bench Depth</div>
-                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['bench_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div>
-                                <div style="font-size:0.74rem; color:#94a3b8;">{len(_t['bench_df'])} Bench Options</div>
-                            </div>
-                            <div>
-                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Ø Pos Rank</div>
-                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">#{_t['avg_pos_rank_starters']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Starters</span></div>
-                                <div style="font-size:0.74rem; color:#94a3b8;">Bench: #{_t['avg_pos_rank_bench']:.1f} • All: #{_t['avg_pos_rank_total']:.1f}</div>
-                            </div>
-                            <div>
-                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">⭐ Top 10 Assets</div>
-                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['top_10_count']} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Players</span></div>
-                                <div style="font-size:0.74rem; color:#94a3b8;">Top-10 at their position</div>
-                            </div>
-                            <div>
-                                <div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Roster Health</div>
-                                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{len(_t['all_roster_df']) - _t['injured_count']} <span style="font-size:0.95rem; font-weight:500; color:#94a3b8;">/ {len(_t['all_roster_df'])}</span></div>
-                                <div style="font-size:0.74rem; color:#16a34a; font-weight:500;">{_t['injured_count']} Questionable / Out</div>
-                            </div>
-                        </div>
-
-                        <!-- Bottom Positional Output Row -->
-                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;">
-                            <div style="font-size:0.74rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-right:4px;">Starter Breakdown:</div>
-                            {''.join(_pos_pills)}
-                        </div>
-                    </div>
-                    """
+                _kpi_box = mo.Html(
+                    f"""<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:18px 22px; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,0.03); font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:16px; padding-bottom:16px; border-bottom:1px solid #f1f5f9;"><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Team Record</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['wins']} - {_t['losses']}</div><div style="font-size:0.74rem; color:#94a3b8;">Total: {_t['total_fpts']:.1f} FPTS</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Starting PPG</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.74rem; color:#94a3b8;">Avg Starter Output / Wk</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Bench Depth</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['bench_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.74rem; color:#94a3b8;">{len(_t['bench_df'])} Bench Options</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Avg Pos Rank</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">#{_t['avg_pos_rank_starters']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Starters</span></div><div style="font-size:0.74rem; color:#94a3b8;">Bench: #{_t['avg_pos_rank_bench']:.1f} • All: #{_t['avg_pos_rank_total']:.1f}</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">⭐ Top 10 Assets</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['top_10_count']} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Players</span></div><div style="font-size:0.74rem; color:#94a3b8;">Top-10 at their position</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Roster Health</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{len(_t['all_roster_df']) - _t['injured_count']} <span style="font-size:0.95rem; font-weight:500; color:#94a3b8;">/ {len(_t['all_roster_df'])}</span></div><div style="font-size:0.74rem; color:#16a34a; font-weight:500;">{_t['injured_count']} Questionable / Out</div></div></div><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;"><div style="font-size:0.74rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-right:4px;">Starter Breakdown:</div>{''.join(_pos_pills)}</div></div>"""
                 )
 
                 # Slot Badge Generator
@@ -443,100 +405,53 @@ def _(
 
                 # Proportional, harmonious column widths
                 def _render_roster_table(df_subset, title_label):
-                    if df_subset.empty:
-                        return mo.md(f"<em>No {title_label.lower()} found.</em>")
-
                     _rows_html = []
                     for _, _r_player in df_subset.iterrows():
-                        # Status Dot Badge
-                        _st = str(_r_player['injury_status']).strip()
-                        if _st == 'Healthy':
-                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Healthy</span>"
-                        elif _st in ['Questionable', 'Doubtful']:
-                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#b45309; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>{_st}</span>"
-                        elif _st == 'NA':
-                            _st_badge = "<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#64748b; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#94a3b8;'></span>Out</span>"
+                        _slot = _r_player['slot']
+                        _badge = _get_slot_badge(_slot)
+                        _img_url = _r_player['headshot_url']
+                        _p_name = _r_player['player_name']
+                        _p_team = _r_player['nfl_team']
+                        _p_pos = _r_player['position']
+
+                        # Consistency Badge
+                        _sd = _r_player['std_points']
+                        if _sd < 4.5:
+                            _cons_badge = f"<span style='color:#16a34a; font-weight:600; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span> ±{_sd:.1f} <span style='font-size:0.7rem; color:#94a3b8;'>Solid</span></span>"
+                        elif _sd < 9.0:
+                            _cons_badge = f"<span style='color:#b45309; font-weight:600; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'><span style='width:6px; height:6px; border-radius:50%; background:#f59e0b;'></span> ±{_sd:.1f} <span style='font-size:0.7rem; color:#94a3b8;'>Mod</span></span>"
                         else:
-                            _st_badge = f"<span style='display:inline-flex; align-items:center; justify-content:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>{_st}</span>"
+                            _cons_badge = f"<span style='color:#dc2626; font-weight:600; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'><span style='width:6px; height:6px; border-radius:50%; background:#ef4444;'></span> ±{_sd:.1f} <span style='font-size:0.7rem; color:#94a3b8;'>Volatile</span></span>"
 
-                        # Consistency Dot Badge
-                        _sd_val = float(_r_player['std_points']) if pd.notna(_r_player['std_points']) else 0.0
-                        if _sd_val < 4.5:
-                            _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#16a34a; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#22c55e;'></span>Rock Solid <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
-                        elif _sd_val < 9.0:
-                            _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#b45309; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#f59e0b;'></span>Moderate <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
+                        # Status Badge
+                        _inj = _r_player['injury_status']
+                        if _inj in ['Healthy', 'Active', '', None]:
+                            _st_badge = "<span style='color:#16a34a; font-size:0.78rem; font-weight:600;'>Healthy</span>"
+                        elif _inj in ['Questionable', 'Q']:
+                            _st_badge = "<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'>Questionable</span>"
+                        elif _inj in ['Out', 'IR', 'Doubtful']:
+                            _st_badge = f"<span style='background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'>{_inj}</span>"
                         else:
-                            _cons_badge = f"<span style='display:inline-flex; align-items:center; gap:6px; color:#dc2626; font-weight:600; font-size:0.78rem; white-space:nowrap;'><span style='width:7px; height:7px; border-radius:50%; background:#ef4444;'></span>Boom / Bust <span style='color:#94a3b8; font-size:0.72rem; font-weight:normal;'>({_sd_val:.2f})</span></span>"
+                            _st_badge = f"<span style='background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.74rem;'>{_inj}</span>"
 
-                        # Positional rank badge
-                        _rank_num = _r_player['pos_rank']
-                        if _rank_num <= 3:
-                            _rank_badge = f"<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:6px; padding:2px 8px; font-size:0.76rem; font-weight:700;'>#{_rank_num}</span>"
-                        elif _rank_num <= 10:
-                            _rank_badge = f"<span style='background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; border-radius:6px; padding:2px 8px; font-size:0.76rem; font-weight:700;'>#{_rank_num}</span>"
+                        # Pos Rank Badge
+                        _rk = _r_player['pos_rank']
+                        if _rk <= 5:
+                            _rank_badge = f"<span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:2px 6px; font-weight:700; font-size:0.76rem;'>#{_rk}</span>"
+                        elif _rk <= 10:
+                            _rank_badge = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#334155; border-radius:6px; padding:2px 6px; font-weight:600; font-size:0.76rem;'>#{_rk}</span>"
                         else:
-                            _rank_badge = f"<span style='color:#94a3b8; font-size:0.76rem;'>#{_rank_num}</span>"
+                            _rank_badge = f"<span style='color:#94a3b8; font-size:0.78rem;'>#{_rk}</span>"
 
-                        _slot_html = _get_slot_badge(_r_player.get('slot', 'BN'))
+                        _min_p = _r_player['min_points']
+                        _max_p = _r_player['max_points']
+                        _range_str = f"{_min_p:.1f} – {_max_p:.1f}"
 
-                        # Range formatting
-                        _min_val = _r_player['min_points']
-                        _max_val = _r_player['max_points']
-                        if pd.isna(_min_val) or pd.isna(_max_val):
-                            _range_str = "—"
-                        else:
-                            _range_str = f"{_min_val:.1f} – {_max_val:.1f}"
-
-                        _row = f"""
-                        <tr style='border-bottom: 1px solid #f1f5f9;'>
-                            <td style='padding:9px 8px; text-align:center; width:6%;'>{_slot_html}</td>
-                            <td style='padding:9px 4px 9px 8px; width:4%; text-align:center;'>
-                                <img src='{_r_player['headshot_url']}' style='width:38px; height:38px; min-width:38px; min-height:38px; max-width:38px; max-height:38px; aspect-ratio:1/1; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0; display:block; margin:0 auto; box-sizing:border-box;' />
-                            </td>
-                            <td style='padding:9px 16px 9px 8px; text-align:left; width:34%;'>
-                                <div style='font-weight:700; font-size:0.9rem; color:#0f172a;'>{_r_player['player_name']}</div>
-                                <div style='font-size:0.76rem; color:#64748b;'>{_r_player['nfl_team']} • {_r_player['position']}</div>
-                            </td>
-                            <td style='padding:9px 10px; text-align:center; width:8%;'>{_rank_badge}</td>
-                            <td style='padding:9px 14px; text-align:right; font-weight:700; font-size:0.92rem; color:#0f172a; width:11%;'>{_r_player['mean_points']:.2f}</td>
-                            <td style='padding:9px 12px; text-align:left; width:15%;'>{_cons_badge}</td>
-                            <td style='padding:9px 12px; text-align:right; color:#475569; font-size:0.82rem; width:11%;'>{_range_str}</td>
-                            <td style='padding:9px 10px; text-align:center; width:11%;'>{_st_badge}</td>
-                        </tr>
-                        """
+                        _row = f"""<tr style='border-bottom: 1px solid #f1f5f9; height:48px;'><td style='padding:9px 8px; text-align:center; width:6%;'>{_badge}</td><td style='padding:9px 4px 9px 8px; width:4%; text-align:center;'><img src='{_img_url}' style='width:32px; height:32px; border-radius:50%; object-fit:cover; background:#f1f5f9;' onerror='this.src=\"https://sleepercdn.com/images/v2/icons/player_default.webp\"'></td><td style='padding:9px 16px 9px 8px; text-align:left; width:34%;'><div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_p_name}</div><div style='font-size:0.74rem; color:#64748b;'>{_p_pos} • {_p_team}</div></td><td style='padding:9px 10px; text-align:center; width:8%;'>{_rank_badge}</td><td style='padding:9px 14px; text-align:right; font-weight:700; font-size:0.92rem; color:#0f172a; width:11%;'>{_r_player['mean_points']:.2f}</td><td style='padding:9px 12px; text-align:left; width:15%;'>{_cons_badge}</td><td style='padding:9px 12px; text-align:right; color:#475569; font-size:0.82rem; width:11%;'>{_range_str}</td><td style='padding:9px 10px; text-align:center; width:11%;'>{_st_badge}</td></tr>"""
                         _rows_html.append(_row)
 
-                    return mo.md(
-                        f"""
-                        <div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; margin-bottom:16px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.02); width:100%;'>
-                            <div style='background:#f8fafc; padding:10px 16px; font-weight:700; font-size:0.88rem; color:#1e293b; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'>
-                                <span>{title_label}</span>
-                                <span style='font-size:0.75rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{len(df_subset)} Players</span>
-                            </div>
-                            <div style='overflow-x:auto;'>
-                                <table style='width:100%; border-collapse:collapse; font-size:0.82rem;'>
-                                    <thead>
-                                        <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'>
-                                            <th style='padding:9px 8px; text-align:center; width:6%;'>Slot</th>
-                                            <th style='padding:9px 4px 9px 8px; width:4%;'></th>
-                                            <th style='padding:9px 16px 9px 8px; text-align:left; width:34%;'>Player</th>
-                                            <th style='padding:9px 10px; text-align:center; width:8%;'>Pos Rank</th>
-                                            <th style='padding:9px 14px; text-align:right; width:11%;'>Mean FPTS</th>
-                                            <th style='padding:9px 12px; text-align:left; width:15%;'>Consistency (SD)</th>
-                                            <th style='padding:9px 12px; text-align:right; width:11%; line-height:1.2;'>
-                                                <div style='font-weight:700; color:#475569;'>Range</div>
-                                                <div style='font-size:0.68rem; color:#94a3b8; font-weight:normal; text-transform:none;'>Min – Max</div>
-                                            </th>
-                                            <th style='padding:9px 10px; text-align:center; width:11%;'>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {"".join(_rows_html)}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        """
+                    return mo.Html(
+                        f"""<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; margin-bottom:16px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.02); width:100%;'><div style='background:#f8fafc; padding:10px 16px; font-weight:700; font-size:0.88rem; color:#1e293b; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'><span>{title_label}</span><span style='font-size:0.75rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{len(df_subset)} Players</span></div><div style='overflow-x:auto;'><table style='width:100%; border-collapse:collapse; font-size:0.82rem;'><thead><tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'><th style='padding:9px 8px; text-align:center; width:6%;'>Slot</th><th style='padding:9px 4px 9px 8px; width:4%;'></th><th style='padding:9px 16px 9px 8px; text-align:left; width:34%;'>Player</th><th style='padding:9px 10px; text-align:center; width:8%;'>Pos Rank</th><th style='padding:9px 14px; text-align:right; width:11%;'>Mean FPTS</th><th style='padding:9px 12px; text-align:left; width:15%;'>Consistency (SD)</th><th style='padding:9px 12px; text-align:right; width:11%; line-height:1.2;'><div style='font-weight:700; color:#475569;'>Range</div><div style='font-size:0.68rem; color:#94a3b8; font-weight:normal; text-transform:none;'>Min – Max</div></th><th style='padding:9px 10px; text-align:center; width:11%;'>Status</th></tr></thead><tbody>{"".join(_rows_html)}</tbody></table></div></div>"""
                     )
 
                 _view = mo.vstack([
@@ -579,6 +494,131 @@ def _(
             _content = render_optimizer_view(_opt_res, mo)
             _view = mo.vstack([_content, _fixed_corner_badge], gap=1)
 
+    elif nav_tabs.value == "🍀 Luck & All-Play":
+        _luck_an = get_luck_and_all_play_analytics(df_teams, df_team_matchups)
+
+        if not _luck_an:
+            _view = mo.Html(
+                """<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; text-align:center; color:#64748b; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'><div style='font-size:2rem; margin-bottom:8px;'>🍀</div><div style='font-size:1.1rem; font-weight:700; color:#0f172a; margin-bottom:4px;'>No Matchup Data Available Yet</div><div style='font-size:0.85rem;'>Once completed match weeks are recorded, All-Play standings, Luck Index, and weekly score breakdown will appear here.</div></div>"""
+            )
+        else:
+            _df_ap = _luck_an['all_play_df']
+            _comp_weeks = _luck_an['completed_weeks']
+            _medians = _luck_an['weekly_medians']
+
+            # Top KPI Summary Grid (English)
+            _kpi_luck = mo.Html(
+                f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:12px; width:100%; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#15803d; text-transform:uppercase;">🍀 Luckiest Team</div><div style="font-size:1.3rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_luck_an['luckiest_team']['team_name']}</div><div style="font-size:0.78rem; color:#15803d; font-weight:700;">+{_luck_an['luckiest_team']['luck_diff']:.2f} Wins Above Expected</div><div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Actual: {_luck_an['luckiest_team']['actual_record']} • Expected: {_luck_an['luckiest_team']['expected_wins']:.2f} xW</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#b91c1c; text-transform:uppercase;">💔 Toughest Schedule</div><div style="font-size:1.3rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_luck_an['unluckiest_team']['team_name']}</div><div style="font-size:0.78rem; color:#b91c1c; font-weight:700;">{_luck_an['unluckiest_team']['luck_diff']:.2f} Wins Below Expected</div><div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Actual: {_luck_an['unluckiest_team']['actual_record']} • Expected: {_luck_an['unluckiest_team']['expected_wins']:.2f} xW</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#b45309; text-transform:uppercase;">👑 True All-Play Leader</div><div style="font-size:1.3rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_luck_an['ap_leader']['team_name']}</div><div style="font-size:0.78rem; color:#b45309; font-weight:700;">{_luck_an['ap_leader']['ap_record']} ({_luck_an['ap_leader']['ap_win_pct']*100:.1f}% Win Rate)</div><div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Would have defeated most opponents every week</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#2563eb; text-transform:uppercase;">🎯 Median Dominator</div><div style="font-size:1.3rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_luck_an['median_leader']['team_name']}</div><div style="font-size:0.78rem; color:#2563eb; font-weight:700;">{_luck_an['median_leader']['median_record']} vs Weekly Median</div><div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Avg {_luck_an['median_leader']['avg_score']:.1f} FPTS per week</div></div></div>"""
+            )
+
+            # All-Play Standings Table (English)
+            _ap_rows = []
+            for _, _r_ap in _df_ap.iterrows():
+                _rank = _r_ap['ap_rank']
+                if _rank == 1:
+                    _rank_badge = "<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:50%; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:0.78rem;'>🥇</span>"
+                elif _rank == 2:
+                    _rank_badge = "<span style='background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:50%; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:0.78rem;'>🥈</span>"
+                elif _rank == 3:
+                    _rank_badge = "<span style='background:#ffedd5; color:#c2410c; border:1px solid #fed7aa; border-radius:50%; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:0.78rem;'>🥉</span>"
+                else:
+                    _rank_badge = f"<span style='color:#94a3b8; font-weight:700; font-size:0.85rem;'>#{_rank}</span>"
+
+                _diff = _r_ap['rank_diff']
+                if _diff > 0:
+                    _diff_html = f"<span style='color:#16a34a; font-weight:700; font-size:0.76rem;' title='All-Play rank is {_diff} spot(s) HIGHER than official standings!'>+{_diff} ▲</span>"
+                elif _diff < 0:
+                    _diff_html = f"<span style='color:#dc2626; font-weight:700; font-size:0.76rem;' title='All-Play rank is {abs(_diff)} spot(s) LOWER than official standings'>{_diff} ▼</span>"
+                else:
+                    _diff_html = "<span style='color:#94a3b8; font-size:0.76rem;' title='All-Play rank matches official standings'>=</span>"
+
+                _luck = _r_ap['luck_diff']
+                if _luck > 0.2:
+                    _luck_badge = f"<span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:3px 10px; font-weight:700; font-size:0.82rem;' title='Favorable schedule: +{_luck:.2f} wins above statistical expectation'>+{_luck:.2f} 🍀</span>"
+                elif _luck < -0.2:
+                    _luck_badge = f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; padding:3px 10px; font-weight:700; font-size:0.82rem;' title='Unfavorable schedule: {_luck:.2f} wins below statistical expectation'>{_luck:.2f} 💔</span>"
+                else:
+                    _luck_badge = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:8px; padding:3px 10px; font-weight:600; font-size:0.82rem;' title='Neutral schedule: In line with expected performance'>{_luck:+.2f} ⚖️</span>"
+
+                _t_dot = f"<span style='display:inline-block; width:10px; height:10px; border-radius:50%; background-color:{owner_colors.get(_r_ap['team_name'], '#3b82f6')};'></span>"
+
+                _ap_rows.append(
+                    f"""<tr style='border-bottom:1px solid #f1f5f9; height:46px;'><td style='padding:8px 6px; text-align:center; width:44px;'>{_rank_badge}</td><td style='padding:8px 6px; text-align:center; width:44px;'>{_diff_html}</td><td style='padding:8px 4px 8px 8px; width:20px;'>{_t_dot}</td><td style='padding:8px 12px 8px 4px; text-align:left;'><div style='font-weight:700; color:#0f172a; font-size:0.88rem;'>{_r_ap['team_name']}</div><div style='font-size:0.72rem; color:#64748b;'>{_r_ap['owner_name']}</div></td><td style='padding:8px 12px; text-align:center; font-weight:700; color:#0f172a;'>{_r_ap['actual_record']} <span style='font-size:0.72rem; font-weight:500; color:#94a3b8;'>({_r_ap['actual_win_pct']:.3f})</span></td><td style='padding:8px 12px; text-align:center; font-weight:800; color:#2563eb;'>{_r_ap['ap_record']} <span style='font-size:0.72rem; font-weight:600; color:#60a5fa;'>({_r_ap['ap_win_pct']:.3f})</span></td><td style='padding:8px 12px; text-align:center; font-weight:700; color:#334155;'>{_r_ap['expected_wins']:.2f}</td><td style='padding:8px 12px; text-align:center;'>{_luck_badge}</td><td style='padding:8px 12px; text-align:center; font-weight:600; color:#475569;'>{_r_ap['median_record']}</td><td style='padding:8px 12px; text-align:right; font-weight:700; color:#0f172a;'>{_r_ap['avg_score']:.1f}</td><td style='padding:8px 12px; text-align:center; font-size:0.8rem; color:#64748b;'>{_r_ap['min_score']:.1f} – {_r_ap['max_score']:.1f}</td><td style='padding:8px 12px; text-align:center; font-size:0.8rem; color:#64748b;'>±{_r_ap['std_score']:.1f}</td></tr>"""
+                )
+
+            _ap_table = mo.Html(
+                f"""<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-top:14px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);'><div style='background:#f8fafc; padding:12px 18px; font-weight:700; font-size:0.92rem; color:#0f172a; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'><span>🍀 All-Play Standings & Luck Index (Weeks {min(_comp_weeks)}–{max(_comp_weeks)})</span><span style='font-size:0.75rem; color:#64748b; font-weight:500;'>Expected Wins = All-Play Win % × Games Played</span></div><div style='overflow-x:auto;'><table style='width:100%; border-collapse:collapse; font-size:0.84rem;'><thead><tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.74rem; text-transform:uppercase; letter-spacing:0.5px;'><th style='padding:10px 6px; text-align:center; width:44px;'>AP</th><th style='padding:10px 6px; text-align:center; width:44px;'>Shift</th><th style='padding:10px 4px 10px 8px; width:20px;'></th><th style='padding:10px 12px 10px 4px; text-align:left;'>Team / Manager</th><th style='padding:10px 12px; text-align:center; width:110px;'>Actual Record</th><th style='padding:10px 12px; text-align:center; width:125px;'>All-Play Record</th><th style='padding:10px 12px; text-align:center; width:95px;' title='Statistically expected wins based on all-play performance'>Exp. Wins (xW)</th><th style='padding:10px 12px; text-align:center; width:125px;' title='Difference of Actual Wins - Expected Wins'>Luck Index (ΔW)</th><th style='padding:10px 12px; text-align:center; width:100px;' title='Record against the weekly league median'>vs Median</th><th style='padding:10px 12px; text-align:right; width:90px;'>Avg Score</th><th style='padding:10px 12px; text-align:center; width:120px;'>Range (Min–Max)</th><th style='padding:10px 12px; text-align:center; width:95px;' title='Standard deviation of weekly scores (volatility)'>Volatility (SD)</th></tr></thead><tbody>{''.join(_ap_rows)}</tbody></table></div></div>"""
+            )
+
+            # Weekly Matrix Breakdown Table (English)
+            _wk_headers = "".join([f"<th style='padding:10px 14px; text-align:center; min-width:145px;'>Week {w}</th>" for w in _comp_weeks])
+            _matrix_rows = []
+
+            for _, _r_mat in _df_ap.iterrows():
+                _t_dot = f"<span style='display:inline-block; width:10px; height:10px; border-radius:50%; background-color:{owner_colors.get(_r_mat['team_name'], '#3b82f6')};'></span>"
+                _wk_cells = []
+
+                for _w in _comp_weeks:
+                    _w_res = _r_mat['weekly_results'].get(_w, {})
+                    _pts = _w_res.get('points', 0.0)
+                    _rk = _w_res.get('rank_in_week', 0)
+                    _res = _w_res.get('result', '-')
+                    _opp = _w_res.get('opp_name', 'Unknown')
+                    _opp_pts = _w_res.get('opp_pts', 0.0)
+                    _margin = _w_res.get('margin', 0.0)
+
+                    # Badge styling for W / L
+                    if _res == 'W':
+                        _res_badge = f"<span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:5px; padding:2px 6px; font-weight:800; font-size:0.72rem;'>W ({_margin:+.1f})</span>"
+                    elif _res == 'L':
+                        _res_badge = f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:5px; padding:2px 6px; font-weight:800; font-size:0.72rem;'>L ({_margin:+.1f})</span>"
+                    else:
+                        _res_badge = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#64748b; border-radius:5px; padding:2px 6px; font-weight:700; font-size:0.72rem;'>T</span>"
+
+                    # Weekly score badge: highlight weekly #1
+                    if _rk == 1:
+                        _rk_badge = "<span style='color:#b45309; font-weight:800; font-size:0.7rem; background:#fef3c7; border:1px solid #fde68a; border-radius:4px; padding:1px 4px; margin-left:4px;'>#1 👑</span>"
+                    elif _rk == 2:
+                        _rk_badge = "<span style='color:#475569; font-weight:700; font-size:0.7rem; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:4px; padding:1px 4px; margin-left:4px;'>#2</span>"
+                    else:
+                        _rk_badge = f"<span style='color:#94a3b8; font-weight:600; font-size:0.7rem; margin-left:4px;'>#{_rk}</span>"
+
+                    _cell_content = f"""<div style='display:flex; flex-direction:column; align-items:center; gap:3px;'><div style='display:flex; align-items:center;'><span style='font-weight:800; color:#0f172a; font-size:0.86rem;'>{_pts:.1f}</span>{_rk_badge}</div><div style='display:flex; align-items:center; gap:4px; margin-top:1px;'>{_res_badge}<span style='font-size:0.72rem; color:#64748b;' title='Matchup vs {_opp} ({_opp_pts:.1f} pts)'>vs {_opp[:8]}</span></div></div>"""
+                    _wk_cells.append(f"<td style='padding:10px 12px; text-align:center; vertical-align:middle;'>{_cell_content}</td>")
+
+                _luck = _r_mat['luck_diff']
+                if _luck > 0.2:
+                    _mat_luck_badge = f"<span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:3px 10px; font-weight:700; font-size:0.82rem;'>+{_luck:.2f} 🍀</span>"
+                elif _luck < -0.2:
+                    _mat_luck_badge = f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; padding:3px 10px; font-weight:700; font-size:0.82rem;'>{_luck:.2f} 💔</span>"
+                else:
+                    _mat_luck_badge = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:8px; padding:3px 10px; font-weight:600; font-size:0.82rem;'>{_luck:+.2f} ⚖️</span>"
+
+                _matrix_rows.append(
+                    f"""<tr style='border-bottom:1px solid #f1f5f9; height:54px;'><td style='padding:8px 6px; text-align:center; font-weight:700; color:#94a3b8; font-size:0.82rem; width:44px;'>#{_r_mat['ap_rank']}</td><td style='padding:8px 4px 8px 8px; width:20px;'>{_t_dot}</td><td style='padding:8px 12px 8px 4px; text-align:left; min-width:140px;'><div style='font-weight:700; color:#0f172a; font-size:0.86rem;'>{_r_mat['team_name']}</div><div style='font-size:0.72rem; color:#64748b;'>{_r_mat['owner_name']}</div></td>{''.join(_wk_cells)}<td style='padding:8px 12px; text-align:right; font-weight:800; color:#0f172a; font-size:0.88rem;'>{_r_mat['avg_score']:.1f}</td><td style='padding:8px 12px; text-align:center;'>{_mat_luck_badge}</td></tr>"""
+                )
+
+            # Weekly League Median Row
+            _med_cells = "".join([f"<td style='padding:10px 12px; text-align:center; font-weight:800; color:#2563eb; font-size:0.84rem;'>{_medians[w]:.1f} FPTS</td>" for w in _comp_weeks])
+            _median_row = f"""<tr style='background:#f8fafc; font-weight:700; border-top:2px solid #e2e8f0; height:46px;'><td colspan='3' style='padding:10px 14px; text-align:left; color:#475569; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.5px;'>🎯 Weekly League Median (Benchmark)</td>{_med_cells}<td style='padding:10px 12px; text-align:right; color:#2563eb; font-weight:800; font-size:0.84rem;'>{float(np.mean(list(_medians.values()))):.1f}</td><td style='padding:10px 12px; text-align:center; color:#94a3b8; font-size:0.75rem;'>Benchmark</td></tr>"""
+
+            _weekly_matrix_table = mo.Html(
+                f"""<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-top:14px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);'><div style='background:#f8fafc; padding:12px 18px; font-weight:700; font-size:0.92rem; color:#0f172a; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'><span>📅 Weekly Matchup & Score Matrix</span><span style='font-size:0.75rem; color:#64748b; font-weight:500;'>Weekly scores with rank & head-to-head outcome</span></div><div style='overflow-x:auto;'><table style='width:100%; border-collapse:collapse; font-size:0.84rem;'><thead><tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.74rem; text-transform:uppercase; letter-spacing:0.5px;'><th style='padding:10px 6px; text-align:center; width:44px;'>AP</th><th style='padding:10px 4px 10px 8px; width:20px;'></th><th style='padding:10px 12px 10px 4px; text-align:left; min-width:140px;'>Team / Manager</th>{_wk_headers}<th style='padding:10px 12px; text-align:right; width:95px;'>Avg Score</th><th style='padding:10px 12px; text-align:center; width:110px;'>Luck Index</th></tr></thead><tbody>{''.join(_matrix_rows)}{_median_row}</tbody></table></div></div>"""
+            )
+
+            # Methodology & Explanation Box (English)
+            _methodology_box = mo.Html(
+                """<div style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:14px 18px; margin-top:14px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size:0.82rem; color:#475569; line-height:1.5;'><div style='font-weight:700; color:#0f172a; margin-bottom:6px; display:flex; align-items:center; gap:6px;'><span>💡 How All-Play & Schedule Luck Work</span></div><div style='display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:8px;'><div><strong style='color:#0f172a;'>All-Play Record:</strong> Simulates what would have occurred if each team had played against <em>all</em> other 5 league managers every single week (5 matchups per week). This completely eliminates head-to-head schedule luck.</div><div><strong style='color:#0f172a;'>Expected Wins (xW):</strong> Calculated as <code>All-Play Win % × Weeks Played</code>. Represents how many wins a team deserved based solely on points scored.</div><div><strong style='color:#0f172a;'>Luck Index (Δ Wins):</strong> <code>Actual Wins - Expected Wins</code>. A positive value (🍀) indicates favorable matchups (facing lower-scoring opponents). A negative value (💔) reveals tough schedule breaks (taking losses despite high scoring).</div></div></div>"""
+            )
+
+            _view = mo.vstack([
+                _kpi_luck,
+                _ap_table,
+                _weekly_matrix_table,
+                _methodology_box,
+                _fixed_corner_badge
+            ], gap=1)
+
     else:
         # League Overview Page
         _league_an = get_league_overview_analytics(df_teams, df_current_rosters, df_player_stats)
@@ -589,36 +629,8 @@ def _(
             _standings = _league_an['standings_df']
 
             # Responsive HTML Grid for League KPI Cards (Works on mobile & desktop)
-            _league_kpi_grid = mo.md(
-                f"""
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; width:100%; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">👑 1st Place Leader</div>
-                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['leader_team']['team_name']}</div>
-                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['leader_team']['wins']}-{_league_an['leader_team']['losses']} • {_league_an['leader_team']['pf']:.1f} PF</div>
-                    </div>
-                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">⚡ League Avg Starters</div>
-                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['avg_starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div>
-                        <div style="font-size:0.75rem; color:#94a3b8;">Avg Weekly Team Score</div>
-                    </div>
-                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🔥 Top Scoring Offense</div>
-                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['high_pf_team']['team_name']}</div>
-                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['high_pf_team']['pf']:.1f} Points For</div>
-                    </div>
-                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🧱 Toughest Schedule</div>
-                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['tough_sched_team']['team_name']}</div>
-                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['tough_sched_team']['pa']:.1f} Points Against</div>
-                    </div>
-                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🪵 Deepest Bench</div>
-                        <div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['deepest_bench_team']['team_name']}</div>
-                        <div style="font-size:0.75rem; color:#94a3b8;">{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG</div>
-                    </div>
-                </div>
-                """
+            _league_kpi_grid = mo.Html(
+                f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; width:100%; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">👑 1st Place Leader</div><div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['leader_team']['team_name']}</div><div style="font-size:0.75rem; color:#94a3b8;">{_league_an['leader_team']['wins']}-{_league_an['leader_team']['losses']} • {_league_an['leader_team']['pf']:.1f} PF</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">⚡ League Avg Starters</div><div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['avg_starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.75rem; color:#94a3b8;">Avg Weekly Team Score</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🔥 Top Scoring Offense</div><div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['high_pf_team']['team_name']}</div><div style="font-size:0.75rem; color:#94a3b8;">{_league_an['high_pf_team']['pf']:.1f} Points For</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🧱 Toughest Schedule</div><div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['tough_sched_team']['team_name']}</div><div style="font-size:0.75rem; color:#94a3b8;">{_league_an['tough_sched_team']['pa']:.1f} Points Against</div></div><div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);"><div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase;">🪵 Deepest Bench</div><div style="font-size:1.35rem; font-weight:800; color:#0f172a; margin:4px 0 2px 0;">{_league_an['deepest_bench_team']['team_name']}</div><div style="font-size:0.75rem; color:#94a3b8;">{_league_an['deepest_bench_team']['bench_ppg']:.1f} Bench PPG</div></div></div>"""
             )
 
             # Build Standings Table Rows with matching column alignments
@@ -674,92 +686,13 @@ def _(
                     _text_color = "#16a34a"
                     _extra_style = ""
 
-                _health_html = f"""
-                <span title="{_tooltip}" style="display:inline-flex; align-items:center; justify-content:center; gap:6px; color:{_text_color}; font-weight:600; font-size:0.8rem; white-space:nowrap; cursor:help; {_extra_style}">
-                    <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:{_dot_color}; display:inline-block;"></span>
-                    <span>{_healthy} / {_total}</span>
-                </span>
-                """
+                _health_html = f"""<span title="{_tooltip}" style="display:inline-flex; align-items:center; justify-content:center; gap:6px; color:{_text_color}; font-weight:600; font-size:0.8rem; white-space:nowrap; cursor:help; {_extra_style}"><span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:{_dot_color}; display:inline-block;"></span><span>{_healthy} / {_total}</span></span>"""
 
-                _row_html = f"""
-                <tr style='border-bottom: 1px solid #f1f5f9;'>
-                    <td style='padding:10px 12px; text-align:center; width:52px;'>{_rank_html}</td>
-                    <td style='padding:10px 4px 10px 10px; width:24px; min-width:24px; max-width:24px; text-align:center;'>
-                        <div style='width:10px; height:10px; min-width:10px; min-height:10px; aspect-ratio:1/1; border-radius:50%; background:{_owner_col}; margin:0 auto;'></div>
-                    </td>
-                    <td style='padding:10px 14px 10px 4px; text-align:left;'>
-                        <div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_t_name}</div>
-                        <div style='font-size:0.75rem; color:#64748b;'>{_r_st['owner_name']}</div>
-                    </td>
-                    <td style='padding:10px 14px; text-align:center; width:110px;'>
-                        <span style='font-weight:800; font-size:0.9rem; color:#0f172a;'>{_r_st['wins']} - {_r_st['losses']}</span>
-                        <div style='font-size:0.72rem; color:#64748b;'>{_r_st['win_pct']:.3f}</div>
-                    </td>
-                    <td style='padding:10px 14px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a; width:100px;'>{_r_st['pf']:.2f}</td>
-                    <td style='padding:10px 14px; text-align:right; font-size:0.86rem; color:#64748b; width:100px;'>{_r_st['pa']:.2f}</td>
-                    <td style='padding:10px 14px; text-align:right; font-size:0.86rem; width:80px;'>{_diff_html}</td>
-                    <td style='padding:10px 14px; text-align:right; font-weight:600; color:#1e293b; width:90px;'>{_r_st['starter_ppg']:.1f}</td>
-                    <td style='padding:10px 14px; text-align:right; color:#64748b; width:85px;'>{_r_st['bench_ppg']:.1f}</td>
-                    <td style='padding:10px 14px; text-align:center; width:95px;'>
-                        <span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:3px 9px; font-weight:700; font-size:0.82rem;' title='Ø Positional Rank aller Starter (ohne IR) | Gesamt-Team Ø: #{_r_st['avg_pos_rank_total']:.1f}'>
-                            #{_r_st['avg_pos_rank_starters']:.1f}
-                        </span>
-                    </td>
-                    <td style='padding:10px 14px; text-align:center; width:95px;'>
-                        <span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:3px 9px; font-weight:600; font-size:0.82rem;' title='Ø Positional Rank aller Bench-Spieler (ohne IR) | Gesamt-Team Ø: #{_r_st['avg_pos_rank_total']:.1f}'>
-                            #{_r_st['avg_pos_rank_bench']:.1f}
-                        </span>
-                    </td>
-                    <td style='padding:10px 14px; text-align:center; width:95px;'>
-                        <span style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 10px; font-weight:700; font-size:0.82rem; color:#0f172a;'>
-                            ⭐ {_r_st['top_10_count']}
-                        </span>
-                    </td>
-                    <td style='padding:10px 14px; text-align:center; width:85px;'>
-                        {_health_html}
-                    </td>
-                    <td style='padding:10px 14px; text-align:center; width:95px;'>
-                        <span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:3px 10px; font-weight:800; font-size:0.82rem;'>
-                            {_r_st['power_score']:.1f}
-                        </span>
-                    </td>
-                </tr>
-                """
+                _row_html = f"""<tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding:10px 12px; text-align:center; width:52px;'>{_rank_html}</td><td style='padding:10px 4px 10px 10px; width:24px; min-width:24px; max-width:24px; text-align:center;'><div style='width:10px; height:10px; min-width:10px; min-height:10px; aspect-ratio:1/1; border-radius:50%; background:{_owner_col}; margin:0 auto;'></div></td><td style='padding:10px 14px 10px 4px; text-align:left;'><div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_t_name}</div><div style='font-size:0.75rem; color:#64748b;'>{_r_st['owner_name']}</div></td><td style='padding:10px 14px; text-align:center; width:110px;'><span style='font-weight:800; font-size:0.9rem; color:#0f172a;'>{_r_st['wins']} - {_r_st['losses']}</span><div style='font-size:0.72rem; color:#64748b;'>{_r_st['win_pct']:.3f}</div></td><td style='padding:10px 14px; text-align:right; font-weight:700; font-size:0.88rem; color:#0f172a; width:100px;'>{_r_st['pf']:.2f}</td><td style='padding:10px 14px; text-align:right; font-size:0.86rem; color:#64748b; width:100px;'>{_r_st['pa']:.2f}</td><td style='padding:10px 14px; text-align:right; font-size:0.86rem; width:80px;'>{_diff_html}</td><td style='padding:10px 14px; text-align:right; font-weight:600; color:#1e293b; width:90px;'>{_r_st['starter_ppg']:.1f}</td><td style='padding:10px 14px; text-align:right; color:#64748b; width:85px;'>{_r_st['bench_ppg']:.1f}</td><td style='padding:10px 14px; text-align:center; width:95px;'><span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:3px 9px; font-weight:700; font-size:0.82rem;' title='Avg Positional Rank of all Starters (excluding IR) | Full Team Avg: #{_r_st['avg_pos_rank_total']:.1f}'>#{_r_st['avg_pos_rank_starters']:.1f}</span></td><td style='padding:10px 14px; text-align:center; width:95px;'><span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:3px 9px; font-weight:600; font-size:0.82rem;' title='Avg Positional Rank of all Bench Players (excluding IR) | Full Team Avg: #{_r_st['avg_pos_rank_total']:.1f}'>#{_r_st['avg_pos_rank_bench']:.1f}</span></td><td style='padding:10px 14px; text-align:center; width:95px;'><span style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 10px; font-weight:700; font-size:0.82rem; color:#0f172a;'>⭐ {_r_st['top_10_count']}</span></td><td style='padding:10px 14px; text-align:center; width:85px;'>{_health_html}</td><td style='padding:10px 14px; text-align:center; width:95px;'><span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:8px; padding:3px 10px; font-weight:800; font-size:0.82rem;'>{_r_st['power_score']:.1f}</span></td></tr>"""
                 _standings_rows.append(_row_html)
 
-            _standings_table = mo.md(
-                f"""
-                <div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-top:14px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);'>
-                    <div style='background:#f8fafc; padding:12px 18px; font-weight:700; font-size:0.92rem; color:#0f172a; border-bottom:1px solid #e2e8f0;'>
-                        🏆 League Standings & Power Rankings
-                    </div>
-                    <div style='overflow-x:auto;'>
-                        <table style='width:100%; border-collapse:collapse; font-size:0.84rem;'>
-                            <thead>
-                                <tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;'>
-                                    <th style='padding:10px 12px; text-align:center; width:52px;'>Rank</th>
-                                    <th style='padding:10px 4px 10px 10px; width:24px; min-width:24px; max-width:24px;'></th>
-                                    <th style='padding:10px 14px 10px 4px; text-align:left;'>Team / Manager</th>
-                                    <th style='padding:10px 14px; text-align:center; width:110px;'>Record (Win %)</th>
-                                    <th style='padding:10px 14px; text-align:right; width:100px;'>Points For (PF)</th>
-                                    <th style='padding:10px 14px; text-align:right; width:100px;'>Points Against (PA)</th>
-                                    <th style='padding:10px 14px; text-align:right; width:80px;'>Diff (+/-)</th>
-                                    <th style='padding:10px 14px; text-align:right; width:90px;'>Starter PPG</th>
-                                    <th style='padding:10px 14px; text-align:right; width:85px;'>Bench PPG</th>
-                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Ø Starter Rank</th>
-                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Ø Bench Rank</th>
-                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Top 10 Assets</th>
-                                    <th style='padding:10px 14px; text-align:center; width:85px;'>Health</th>
-                                    <th style='padding:10px 14px; text-align:center; width:95px;'>Power Index</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {"".join(_standings_rows)}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                """
+            _standings_table = mo.Html(
+                f"""<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-top:14px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);'><div style='background:#f8fafc; padding:12px 18px; font-weight:700; font-size:0.92rem; color:#0f172a; border-bottom:1px solid #e2e8f0;'>🏆 League Standings & Power Rankings</div><div style='overflow-x:auto;'><table style='width:100%; border-collapse:collapse; font-size:0.84rem;'><thead><tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;'><th style='padding:10px 12px; text-align:center; width:52px;'>Rank</th><th style='padding:10px 4px 10px 10px; width:24px; min-width:24px; max-width:24px;'></th><th style='padding:10px 14px 10px 4px; text-align:left;'>Team / Manager</th><th style='padding:10px 14px; text-align:center; width:110px;'>Record (Win %)</th><th style='padding:10px 14px; text-align:right; width:100px;'>Points For (PF)</th><th style='padding:10px 14px; text-align:right; width:100px;'>Points Against (PA)</th><th style='padding:10px 14px; text-align:right; width:80px;'>Diff (+/-)</th><th style='padding:10px 14px; text-align:right; width:90px;'>Starter PPG</th><th style='padding:10px 14px; text-align:right; width:85px;'>Bench PPG</th><th style='padding:10px 14px; text-align:center; width:95px;'>Avg Starter Rank</th><th style='padding:10px 14px; text-align:center; width:95px;'>Avg Bench Rank</th><th style='padding:10px 14px; text-align:center; width:95px;'>Top 10 Assets</th><th style='padding:10px 14px; text-align:center; width:85px;'>Health</th><th style='padding:10px 14px; text-align:center; width:95px;'>Power Index</th></tr></thead><tbody>{"".join(_standings_rows)}</tbody></table></div></div>"""
             )
 
             _view = mo.vstack([

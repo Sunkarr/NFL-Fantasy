@@ -17,34 +17,10 @@ def init_db(db_path: Path = DB_PATH):
     cur = conn.cursor()
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS players (
-            player_id TEXT PRIMARY KEY,
-            full_name TEXT,
-            position TEXT,
-            nfl_team TEXT,
-            status TEXT,
-            injury_status TEXT,
-            age INTEGER,
-            years_exp INTEGER,
-            updated_at TIMESTAMP
-        )
-    ''')
+        CREATE TABLE IF NOT EXISTS players (\n            player_id TEXT PRIMARY KEY,\n            full_name TEXT,\n            position TEXT,\n            nfl_team TEXT,\n            status TEXT,\n            injury_status TEXT,\n            age INTEGER,\n            years_exp INTEGER,\n            updated_at TIMESTAMP\n        )\n    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS teams (
-            roster_id INTEGER,
-            league_id TEXT,
-            owner_id TEXT,
-            team_name TEXT,
-            owner_name TEXT,
-            wins INTEGER,
-            losses INTEGER,
-            fpts REAL,
-            fpts_against REAL DEFAULT 0.0,
-            updated_at TIMESTAMP,
-            PRIMARY KEY (roster_id, league_id)
-        )
-    ''')
+        CREATE TABLE IF NOT EXISTS teams (\n            roster_id INTEGER,\n            league_id TEXT,\n            owner_id TEXT,\n            team_name TEXT,\n            owner_name TEXT,\n            wins INTEGER,\n            losses INTEGER,\n            fpts REAL,\n            fpts_against REAL DEFAULT 0.0,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (roster_id, league_id)\n        )\n    ''')
 
     # Ensure fpts_against exists if table was previously created
     cur.execute("PRAGMA table_info(teams);")
@@ -53,55 +29,19 @@ def init_db(db_path: Path = DB_PATH):
         cur.execute("ALTER TABLE teams ADD COLUMN fpts_against REAL DEFAULT 0.0;")
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS current_rosters (
-            league_id TEXT,
-            roster_id INTEGER,
-            player_id TEXT,
-            is_starter INTEGER,
-            updated_at TIMESTAMP,
-            PRIMARY KEY (league_id, roster_id, player_id)
-        )
-    ''')
+        CREATE TABLE IF NOT EXISTS current_rosters (\n            league_id TEXT,\n            roster_id INTEGER,\n            player_id TEXT,\n            is_starter INTEGER,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, roster_id, player_id)\n        )\n    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_matchup_points (
-            league_id TEXT,
-            season TEXT,
-            week INTEGER,
-            roster_id INTEGER,
-            player_id TEXT,
-            points REAL,
-            started INTEGER,
-            updated_at TIMESTAMP,
-            PRIMARY KEY (league_id, season, week, roster_id, player_id)
-        )
-    ''')
+        CREATE TABLE IF NOT EXISTS weekly_matchup_points (\n            league_id TEXT,\n            season TEXT,\n            week INTEGER,\n            roster_id INTEGER,\n            player_id TEXT,\n            points REAL,\n            started INTEGER,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, season, week, roster_id, player_id)\n        )\n    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_nfl_stats (
-            season TEXT,
-            week INTEGER,
-            player_id TEXT,
-            points REAL,
-            pass_yd REAL,
-            pass_td REAL,
-            pass_int REAL,
-            rush_yd REAL,
-            rush_td REAL,
-            rec REAL,
-            rec_yd REAL,
-            rec_td REAL,
-            updated_at TIMESTAMP,
-            PRIMARY KEY (season, week, player_id)
-        )
-    ''')
+        CREATE TABLE IF NOT EXISTS weekly_team_matchups (\n            league_id TEXT,\n            season TEXT,\n            week INTEGER,\n            roster_id INTEGER,\n            matchup_id INTEGER,\n            points REAL,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, season, week, roster_id)\n        )\n    ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS sync_metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
+        CREATE TABLE IF NOT EXISTS weekly_nfl_stats (\n            season TEXT,\n            week INTEGER,\n            player_id TEXT,\n            points REAL,\n            pass_yd REAL,\n            pass_td REAL,\n            pass_int REAL,\n            rush_yd REAL,\n            rush_td REAL,\n            rec REAL,\n            rec_yd REAL,\n            rec_td REAL,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (season, week, player_id)\n        )\n    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS sync_metadata (\n            key TEXT PRIMARY KEY,\n            value TEXT\n        )\n    ''')
 
     conn.commit()
     conn.close()
@@ -118,100 +58,71 @@ def set_sync_metadata(key: str, value: str, db_path: Path = DB_PATH) -> None:
 
 
 def get_sync_metadata(key: str, db_path: Path = DB_PATH) -> Optional[str]:
-    """Retrieve value for key from sync_metadata table, or None if table or key doesn't exist."""
-    if not db_path.exists():
-        return None
-    try:
-        conn = get_connection(db_path)
-        cur = conn.cursor()
-        cur.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,))
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else None
-    except sqlite3.OperationalError:
-        return None
-
-
-def get_last_sync_time(db_path: Path = DB_PATH) -> Optional[datetime.datetime]:
-    """
-    Retrieve the timestamp of the last data sync.
-    Checks:
-    1. sync_metadata table ('last_sync')
-    2. MAX(updated_at) across teams/current_rosters
-    3. File modification timestamp of fantasy.db
-    """
-    if not db_path.exists():
-        return None
-
-    # 1. Try sync_metadata (check last_sync_success, then last_sync)
-    for key in ("last_sync_success", "last_sync"):
-        val = get_sync_metadata(key, db_path)
-        if val:
-            try:
-                return datetime.datetime.fromisoformat(val)
-            except Exception:
-                pass
-
-    # 2. Try MAX(updated_at) from teams or current_rosters
-    try:
-        conn = get_connection(db_path)
-        cur = conn.cursor()
-        cur.execute("SELECT MAX(updated_at) FROM teams")
-        row = cur.fetchone()
-        if not row or not row[0]:
-            cur.execute("SELECT MAX(updated_at) FROM current_rosters")
-            row = cur.fetchone()
-        conn.close()
-        if row and row[0]:
-            try:
-                return datetime.datetime.fromisoformat(row[0])
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # 3. Fallback to file mtime
-    try:
-        mtime = db_path.stat().st_mtime
-        return datetime.datetime.fromtimestamp(mtime)
-    except Exception:
-        return None
-
-
-def format_last_sync(dt: Optional[datetime.datetime]) -> str:
-    """Format last sync datetime into a concise human-friendly string for UI display."""
-    if not dt:
-        return "N/A"
-
-    now = datetime.datetime.now()
-    if dt.date() == now.date():
-        return dt.strftime("%H:%M")
-    elif (now.date() - dt.date()).days == 1:
-        return f"Yesterday, {dt.strftime('%H:%M')}"
-    elif dt.year == now.year:
-        return dt.strftime("%d.%m. %H:%M")
-    else:
-        return dt.strftime("%d.%m.%Y %H:%M")
-
-
-def get_active_season(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> Optional[str]:
-    """Retrieve the most recent active season from matchup or stats data."""
+    """Retrieve value for a key from sync_metadata."""
     if not db_path.exists():
         return None
     conn = get_connection(db_path)
     cur = conn.cursor()
-    
-    cur.execute("SELECT MAX(season) FROM weekly_matchup_points WHERE league_id = ?", (league_id,))
+    cur.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,))
     row = cur.fetchone()
-    season = row[0] if row and row[0] else None
-
-    if not season:
-        cur.execute("SELECT MAX(season) FROM weekly_nfl_stats")
-        row = cur.fetchone()
-        season = row[0] if row and row[0] else None
-
     conn.close()
-    return season
+    return row[0] if row else None
+
+
+def get_last_sync_time(db_path: Path = DB_PATH) -> Optional[datetime.datetime]:
+    """Retrieve the timestamp of the last successful data fetch."""
+    val = get_sync_metadata("last_sync_time", db_path)
+    if not val:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def format_last_sync(dt: Optional[datetime.datetime]) -> str:
+    """Return a clean human-readable representation of the last sync time."""
+    if dt is None:
+        return "Not synced yet"
+    now = datetime.datetime.now()
+    diff = now - dt
+    seconds = int(diff.total_seconds())
+
+    if seconds < 60:
+        return f"{seconds}s ago"
+    elif seconds < 3600:
+        return f"{seconds // 60}m ago"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        mins = (seconds % 3600) // 60
+        return f"{hours}h {mins}m ago"
+    else:
+        return dt.strftime("%b %d, %H:%M")
+
+
+def get_active_season(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> str:
+    """
+    Determine the active season for the league.
+    Prefers the season stored in sync_metadata, otherwise queries weekly_matchup_points,
+    and falls back to the current calendar year.
+    """
+    val = get_sync_metadata("active_season", db_path)
+    if val:
+        return val
+
+    if db_path.exists():
+        conn = get_connection(db_path)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT season FROM weekly_matchup_points WHERE league_id = ? ORDER BY season DESC LIMIT 1",
+            (league_id,)
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return str(row[0])
+
+    return str(datetime.datetime.now().year)
 
 
 def get_available_seasons(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> list[str]:
@@ -308,3 +219,51 @@ def load_league_data(
 
     conn.close()
     return teams, rosters, matchups, nfl_stats
+
+
+def load_team_matchups(
+    db_path: Path = DB_PATH,
+    league_id: str = DEFAULT_LEAGUE_ID,
+    season: Optional[str] = None
+) -> pd.DataFrame:
+    """
+    Load weekly team-level matchup records (scores and head-to-head pairings).
+    If the weekly_team_matchups table is empty, reconstructs from weekly_matchup_points.
+    """
+    if not db_path.exists():
+        return pd.DataFrame()
+
+    conn = get_connection(db_path)
+    if season is None:
+        season = get_active_season(db_path, league_id)
+
+    # 1. Primary: load from weekly_team_matchups
+    try:
+        df = pd.read_sql_query('''
+            SELECT m.season, m.week, m.roster_id, t.team_name, t.owner_name, m.matchup_id, m.points
+            FROM weekly_team_matchups m
+            JOIN teams t ON m.roster_id = t.roster_id AND m.league_id = t.league_id
+            WHERE m.league_id = ? AND m.season = ?
+            ORDER BY m.week, m.matchup_id, m.points DESC
+        ''', conn, params=(league_id, season))
+        if not df.empty:
+            conn.close()
+            return df
+    except Exception:
+        pass
+
+    # 2. Fallback: reconstruct from weekly_matchup_points where started == 1
+    try:
+        df = pd.read_sql_query('''
+            SELECT m.season, m.week, m.roster_id, t.team_name, t.owner_name, 0 as matchup_id, SUM(m.points) as points
+            FROM weekly_matchup_points m
+            JOIN teams t ON m.roster_id = t.roster_id AND m.league_id = t.league_id
+            WHERE m.league_id = ? AND m.season = ? AND m.started = 1
+            GROUP BY m.season, m.week, m.roster_id, t.team_name, t.owner_name
+            ORDER BY m.week, points DESC
+        ''', conn, params=(league_id, season))
+        conn.close()
+        return df
+    except Exception:
+        conn.close()
+        return pd.DataFrame()
