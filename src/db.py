@@ -144,13 +144,14 @@ def get_sync_metadata(key: str, db_path: Path = DB_PATH) -> Optional[str]:
 
 def get_last_sync_time(db_path: Path = DB_PATH) -> Optional[datetime.datetime]:
     """Retrieve the timestamp of the last successful data fetch."""
-    val = get_sync_metadata("last_sync_time", db_path)
-    if not val:
-        return None
-    try:
-        return datetime.datetime.fromisoformat(val)
-    except (ValueError, TypeError):
-        return None
+    for key in ("last_sync_success", "last_sync", "last_sync_time"):
+        val = get_sync_metadata(key, db_path)
+        if val:
+            try:
+                return datetime.datetime.fromisoformat(val)
+            except (ValueError, TypeError):
+                pass
+    return None
 
 
 def format_last_sync(dt: Optional[datetime.datetime]) -> str:
@@ -227,12 +228,13 @@ def load_league_data(
         ORDER BY wins DESC, fpts DESC
     ''', conn, params=(league_id,))
 
-    # 2. Current Rosters
+    # 2. Current Rosters with player metadata and team affiliation
     rosters = pd.read_sql_query('''
-        SELECT r.roster_id, r.league_id, r.player_id, r.is_starter,
+        SELECT r.roster_id, t.team_name, r.league_id, r.player_id, r.is_starter,
                p.full_name as player_name, p.position, p.nfl_team, p.status, p.injury_status,
                p.age, p.years_exp
         FROM current_rosters r
+        JOIN teams t ON r.roster_id = t.roster_id AND r.league_id = t.league_id
         JOIN players p ON r.player_id = p.player_id
         WHERE r.league_id = ?
     ''', conn, params=(league_id,))
