@@ -28,6 +28,7 @@ def _():
         analyze_team_needs_and_surplus,
         calculate_player_trade_values,
         generate_trade_recommendations,
+        render_player_market_view,
         render_trade_finder_view,
         simulate_custom_trade
     )
@@ -102,6 +103,7 @@ def _():
         np,
         optimize_team_lineup,
         render_optimizer_view,
+        render_player_market_view,
         render_trade_finder_view,
         simulate_custom_trade,
     )
@@ -124,6 +126,7 @@ def _(mo):
         "🏆 League Overview": mo.md(""),
         "🍀 Luck & All-Play": mo.md(""),
         "🤝 Trade Finder": mo.md(""),
+        "💎 Player Market": mo.md(""),
         "🛡️ Team Analytics": mo.md(""),
         "⚡ Team Optimizer": mo.md(""),
         "📊 Position Scatter": mo.md("")
@@ -337,8 +340,33 @@ def _(
 
 
 @app.cell
+def _(mo, unique_teams):
+    # Controls for dedicated Player Market & Value page
+    _t_names = unique_teams if unique_teams else []
+    market_pos_dropdown = mo.ui.dropdown(
+        options=["ALL", "QB", "RB", "WR", "TE", "K", "DEF"],
+        value="ALL",
+        label="Position:"
+    )
+    market_team_dropdown = mo.ui.dropdown(
+        options=["ALL"] + _t_names,
+        value="ALL",
+        label="Team:"
+    )
+    market_search_input = mo.ui.text(
+        value="",
+        placeholder="Filter by player...",
+        label="Search:"
+    )
+    return market_pos_dropdown, market_search_input, market_team_dropdown
+
+
+@app.cell
 def _(
     limit_slider,
+    market_pos_dropdown,
+    market_search_input,
+    market_team_dropdown,
     min_pts_slider,
     mo,
     nav_tabs,
@@ -356,6 +384,8 @@ def _(
         _filter_bar = mo.hstack([team_dropdown], justify="start", align="center", gap=2)
     elif nav_tabs.value == "🤝 Trade Finder":
         _filter_bar = mo.hstack([trade_focus_dropdown], justify="start", align="center", gap=2)
+    elif nav_tabs.value == "💎 Player Market":
+        _filter_bar = mo.hstack([market_pos_dropdown, market_team_dropdown, market_search_input], justify="start", align="center", gap=2)
     elif nav_tabs.value == "⚡ Team Optimizer":
         _divider1 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
         _divider2 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
@@ -401,6 +431,9 @@ def _(
     get_luck_and_all_play_analytics,
     get_team_roster_analytics,
     limit_slider,
+    market_pos_dropdown,
+    market_search_input,
+    market_team_dropdown,
     min_pts_slider,
     mo,
     nav_tabs,
@@ -413,6 +446,7 @@ def _(
     pos_select,
     refresh_btn,
     render_optimizer_view,
+    render_player_market_view,
     render_trade_finder_view,
     simulate_custom_trade,
     team_dropdown,
@@ -422,6 +456,7 @@ def _(
     trade_team_a_dropdown,
     trade_team_b_dropdown,
     unique_teams,
+    val_df_calc,
 ):
     _ = refresh_btn.value
 
@@ -496,6 +531,18 @@ def _(
             mo=mo
         )
         _view = mo.vstack([_trade_view, _fixed_corner_badge], gap=1)
+
+    elif nav_tabs.value == "💎 Player Market":
+        _market_view = render_player_market_view(
+            val_df=val_df_calc,
+            unique_teams=unique_teams,
+            owner_colors=owner_colors,
+            pos_filter=market_pos_dropdown.value if market_pos_dropdown else "ALL",
+            team_filter=market_team_dropdown.value if market_team_dropdown else "ALL",
+            search_query=market_search_input.value if market_search_input else "",
+            mo=mo
+        )
+        _view = mo.vstack([_market_view, _fixed_corner_badge], gap=1)
 
     elif nav_tabs.value == "🛡️ Team Analytics":
         if team_dropdown is None or not team_dropdown.value:

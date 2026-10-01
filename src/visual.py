@@ -194,3 +194,157 @@ def build_interactive_position_chart(
     )
 
     return chart
+
+def build_market_value_scatter_chart(
+    val_data: pd.DataFrame,
+    unique_teams: List[str],
+    owner_colors: Dict[str, str],
+    chart_width: int = 860,
+    chart_height: int = 480
+) -> alt.Chart:
+    """
+    Build an Altair scatter plot mapping Mean FPTS (PPG) vs Market Trade Value (0 - 100 TV).
+    Features:
+    - Smart anti-overlap alternating labels
+    - Detailed hover tooltips (TV, PPG, VORP, GP, Pos Rank, Percentile, Status)
+    - Median reference dashed lines for market quadrants
+    - High-contrast fantasy owner color palette
+    """
+    if val_data is None or val_data.empty:
+        return alt.Chart(pd.DataFrame()).mark_text()
+
+    df_plot = val_data.copy().sort_values(by=['score', 'trade_value'], ascending=[True, True]).reset_index(drop=True)
+    owner_col = 'team_name' if 'team_name' in df_plot.columns else 'current_owner'
+    df_plot['owner_clean'] = df_plot[owner_col].fillna('Free Agent')
+    owner_counts = df_plot['owner_clean'].value_counts()
+    df_plot['owner_legend_label'] = df_plot['owner_clean'].apply(lambda o: f"{o} ({owner_counts.get(o, 0)})")
+    df_plot['short_name'] = df_plot['player_name'].apply(_abbreviate_name)
+
+    # Axis Domain Bounds with generous padding
+    x_min = float(df_plot['score'].min())
+    x_max = float(df_plot['score'].max())
+    y_min = float(df_plot['trade_value'].min())
+    y_max = float(df_plot['trade_value'].max())
+
+    x_margin = max(2.5, (x_max - x_min) * 0.12)
+    y_margin = max(4.0, (y_max - y_min) * 0.12)
+
+    x_domain = [max(0.0, x_min - x_margin), x_max + x_margin + 2.0]
+    y_domain = [max(0.0, y_min - y_margin), y_max + y_margin]
+
+    x_med = float(df_plot['score'].median())
+    y_med = float(df_plot['trade_value'].median())
+
+    ordered_owners = sorted([o for o in df_plot['owner_clean'].unique() if o != 'Free Agent'])
+    if 'Free Agent' in df_plot['owner_clean'].values:
+        ordered_owners.append('Free Agent')
+
+    domain_labels = [f"{o} ({owner_counts.get(o, 0)})" for o in ordered_owners]
+    range_colors = [owner_colors.get(o, FREE_AGENT_COLOR) for o in ordered_owners]
+
+    base = alt.Chart(df_plot).encode(
+        x=alt.X(
+            'score:Q',
+            title='Mean Points (FPTS / PPG)',
+            scale=alt.Scale(domain=x_domain),
+            axis=alt.Axis(
+                gridColor='#e2e8f0',
+                titleFontWeight='bold',
+                titleFontSize=12,
+                labelFontSize=10.5,
+                tickCount=10
+            )
+        ),
+        y=alt.Y(
+            'trade_value:Q',
+            title='Market Trade Value (0 - 100 TV)',
+            scale=alt.Scale(domain=y_domain),
+            axis=alt.Axis(
+                gridColor='#e2e8f0',
+                titleFontWeight='bold',
+                titleFontSize=12,
+                labelFontSize=10.5,
+                tickCount=8
+            )
+        )
+    )
+
+    rule_x = alt.Chart(pd.DataFrame({'x': [x_med]})).mark_rule(
+        strokeDash=[4, 4],
+        color='#94a3b8',
+        size=1.2,
+        opacity=0.8
+    ).encode(x=alt.X('x:Q', scale=alt.Scale(domain=x_domain)))
+
+    rule_y = alt.Chart(pd.DataFrame({'y': [y_med]})).mark_rule(
+        strokeDash=[4, 4],
+        color='#94a3b8',
+        size=1.2,
+        opacity=0.8
+    ).encode(y=alt.Y('y:Q', scale=alt.Scale(domain=y_domain)))
+
+    scatter_points = base.mark_circle(
+        size=220,
+        opacity=0.92,
+        stroke='#ffffff',
+        strokeWidth=1.5
+    ).encode(
+        color=alt.Color(
+            'owner_legend_label:N',
+            title='Fantasy Owner',
+            scale=alt.Scale(domain=domain_labels, range=range_colors),
+            legend=alt.Legend(
+                titleFontSize=11.5,
+                titleFontWeight='bold',
+                labelFontSize=10.5,
+                symbolSize=110,
+                orient='top',
+                columns=4,
+                labelLimit=250
+            )
+        ),
+        tooltip=[
+            alt.Tooltip('player_name:N', title='Player'),
+            alt.Tooltip('position:N', title='Position'),
+            alt.Tooltip('nfl_team:N', title='NFL Team'),
+            alt.Tooltip('owner_clean:N', title='Fantasy Owner'),
+            alt.Tooltip('injury_status:N', title='Injury Status'),
+            alt.Tooltip('trade_value:Q', title='Trade Value (TV)', format='.1f'),
+            alt.Tooltip('score:Q', title='Mean FPTS (PPG)', format='.2f'),
+            alt.Tooltip('pos_percentile:Q', title='Pos Percentile', format='.0f'),
+            alt.Tooltip('pos_rank:Q', title='Pos Rank'),
+            alt.Tooltip('games_played:Q', title='Games Played')
+        ]
+    )
+
+    df_plot['is_even'] = df_plot.index % 2 == 0
+    df_even = df_plot[df_plot['is_even']].copy()
+    df_odd = df_plot[~df_plot['is_even']].copy()
+
+    labels_even = alt.Chart(df_even).mark_text(
+        align='left', baseline='middle', dx=11, dy=-5, fontSize=10, fontWeight=600, color='#334155', opacity=0.95
+    ).encode(
+        x=alt.X('score:Q', scale=alt.Scale(domain=x_domain)),
+        y=alt.Y('trade_value:Q', scale=alt.Scale(domain=y_domain)),
+        text='short_name:N'
+    )
+
+    labels_odd = alt.Chart(df_odd).mark_text(
+        align='left', baseline='middle', dx=11, dy=6, fontSize=10, fontWeight=600, color='#334155', opacity=0.95
+    ).encode(
+        x=alt.X('score:Q', scale=alt.Scale(domain=x_domain)),
+        y=alt.Y('trade_value:Q', scale=alt.Scale(domain=y_domain)),
+        text='short_name:N'
+    )
+
+    chart = (rule_x + rule_y + scatter_points + labels_even + labels_odd).properties(
+        width=chart_width,
+        height=chart_height
+    ).configure_view(
+        stroke='#cbd5e1'
+    ).configure_axis(
+        domainColor='#cbd5e1'
+    )
+
+    return chart
+

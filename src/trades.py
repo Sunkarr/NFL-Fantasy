@@ -1090,6 +1090,63 @@ def render_trade_finder_view(
         bar_pct_a = (val_a / total_val_pool) * 100
         bar_pct_b = (val_b / total_val_pool) * 100
 
+
+        def _render_package_breakdown(players_list):
+            if not players_list:
+                return "<div style='font-size:0.75rem; color:#94a3b8; padding:4px 0;'>None selected</div>"
+            cards = []
+            for p in players_list:
+                img = p.get("headshot_url", "")
+                p_name = p.get("player_name", "Unknown")
+                pos = p.get("position", "")
+                tv = float(p.get("trade_value", 0.0))
+                score = float(p.get("score", 0.0))
+                gp = int(p.get("games_played", 0))
+                pos_rank = p.get("pos_rank", 99)
+                pct = int(round(float(p.get("pos_percentile", 50))))
+                inj = str(p.get("injury_status", "Healthy")).strip()
+
+                if inj == "Healthy":
+                    inj_badge = "<span style='color:#16a34a; font-weight:600; font-size:0.70rem;'>Healthy</span>"
+                elif inj in ["Questionable", "Q"]:
+                    inj_badge = "<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:4px; padding:1px 5px; font-weight:700; font-size:0.68rem;'>Questionable (-10% risk)</span>"
+                else:
+                    inj_badge = f"<span style='background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; border-radius:4px; padding:1px 5px; font-weight:700; font-size:0.68rem;'>{inj} (-40% risk)</span>"
+
+                if gp <= 1:
+                    sample_tag = " <span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:4px; padding:1px 5px; font-weight:700; font-size:0.68rem;'>⚠️ 1 GP (Small sample)</span>"
+                else:
+                    sample_tag = f" <span style='color:#64748b;'>({gp} GP)</span>"
+
+                rank_str = f"#{pos_rank} {pos}" if pos_rank < 99 else pos
+
+                card_html = f"""
+                <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-top:6px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <img src="{img}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; background:#f1f5f9; border:1px solid #e2e8f0;" onerror="this.src='https://sleepercdn.com/images/v2/icons/player_default.webp'"/>
+                        <div>
+                            <div style="font-weight:700; font-size:0.86rem; color:#0f172a; display:flex; align-items:center; gap:6px;">
+                                <span>{p_name}</span>
+                                <span style="background:#f1f5f9; color:#475569; border-radius:4px; padding:1px 5px; font-size:0.70rem; font-weight:700;">{pos}</span>
+                            </div>
+                            <div style="font-size:0.72rem; color:#64748b; margin-top:2px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <span><b>{score:.1f} PPG</b>{sample_tag}</span>
+                                <span>•</span>
+                                <span>{rank_str} ({pct}th %ile)</span>
+                                <span>•</span>
+                                {inj_badge}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="text-align:right; min-width:70px; flex-shrink:0;">
+                        <div style="font-weight:800; font-size:1.0rem; color:#7c3aed;">{tv:.1f} <span style="font-size:0.72rem; font-weight:600; color:#64748b;">TV</span></div>
+                        <div style="font-size:0.68rem; color:#94a3b8;">Asset Value</div>
+                    </div>
+                </div>
+                """
+                cards.append(card_html)
+            return "".join(cards)
+
         # Lineup changes rows
         st_a_before = calc_result.get("lineup_a_before", {}).get("starter_score", 0.0)
         st_b_before = calc_result.get("lineup_b_before", {}).get("starter_score", 0.0)
@@ -1110,35 +1167,53 @@ def render_trade_finder_view(
 
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
                 <!-- Team A Impact -->
-                <div style="background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; padding:12px;">
-                    <div style="font-weight:800; font-size:0.92rem; color:#0f172a; margin-bottom:6px;">{t_a} Trade Impact</div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <span style="font-size:0.78rem; color:#64748b; font-weight:600;">Net Production Delta:</span>
-                        {diff_a_pill}
+                <div style="background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between;">
+                    <div>
+                        <div style="font-weight:800; font-size:0.95rem; color:#0f172a; margin-bottom:8px;">{t_a} Trade Impact</div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="font-size:0.78rem; color:#64748b; font-weight:600;">Net Production Delta:</span>
+                            {diff_a_pill}
+                        </div>
+                        <div style="font-size:0.75rem; color:#64748b; margin-bottom:10px;">
+                            <span>Trade Value: Sent <strong style="color:#7c3aed;">{val_a:.1f} TV</strong> ({pct_a}th %ile)</span> • 
+                            <span>Received <strong style="color:#2563eb;">{val_b:.1f} TV</strong> ({pct_b}th %ile)</span>
+                        </div>
+                        
+                        <!-- Individual Asset Valuation Breakdown -->
+                        <div style="font-size:0.75rem; color:#475569; margin-top:8px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                            <div style="font-weight:700; color:#0f172a; margin-bottom:4px;">📦 Players Sent by {t_a} ({len(calc_result.get('players_a_sends', []))}):</div>
+                            {_render_package_breakdown(calc_result.get('players_a_sends', []))}
+                        </div>
                     </div>
-                    <div style="font-size:0.75rem; color:#64748b; margin-bottom:6px;">
-                        <span>Trade Value: Sent <strong style="color:#7c3aed;">{val_a:.1f} TV</strong> ({pct_a}th %ile)</span> • 
-                        <span>Received <strong style="color:#2563eb;">{val_b:.1f} TV</strong> ({pct_b}th %ile)</span>
-                    </div>
-                    <div style="font-size:0.74rem; color:#475569; margin-top:6px; border-top:1px solid #e2e8f0; padding-top:6px;">
-                        <strong>Starting Lineup Adjustments:</strong>
+
+                    <div style="font-size:0.74rem; color:#475569; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                        <strong>⚡ Starting Lineup Adjustments:</strong>
                         <ul style="padding-left:16px; margin:4px 0 0 0; color:#334155;">{moves_a_html}</ul>
                     </div>
                 </div>
 
                 <!-- Team B Impact -->
-                <div style="background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; padding:12px;">
-                    <div style="font-weight:800; font-size:0.92rem; color:#0f172a; margin-bottom:6px;">{t_b} Trade Impact</div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <span style="font-size:0.78rem; color:#64748b; font-weight:600;">Net Production Delta:</span>
-                        {diff_b_pill}
+                <div style="background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between;">
+                    <div>
+                        <div style="font-weight:800; font-size:0.95rem; color:#0f172a; margin-bottom:8px;">{t_b} Trade Impact</div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="font-size:0.78rem; color:#64748b; font-weight:600;">Net Production Delta:</span>
+                            {diff_b_pill}
+                        </div>
+                        <div style="font-size:0.75rem; color:#64748b; margin-bottom:10px;">
+                            <span>Trade Value: Sent <strong style="color:#7c3aed;">{val_b:.1f} TV</strong> ({pct_b}th %ile)</span> • 
+                            <span>Received <strong style="color:#2563eb;">{val_a:.1f} TV</strong> ({pct_a}th %ile)</span>
+                        </div>
+                        
+                        <!-- Individual Asset Valuation Breakdown -->
+                        <div style="font-size:0.75rem; color:#475569; margin-top:8px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                            <div style="font-weight:700; color:#0f172a; margin-bottom:4px;">📦 Players Sent by {t_b} ({len(calc_result.get('players_b_sends', []))}):</div>
+                            {_render_package_breakdown(calc_result.get('players_b_sends', []))}
+                        </div>
                     </div>
-                    <div style="font-size:0.75rem; color:#64748b; margin-bottom:6px;">
-                        <span>Trade Value: Sent <strong style="color:#7c3aed;">{val_b:.1f} TV</strong> ({pct_b}th %ile)</span> • 
-                        <span>Received <strong style="color:#2563eb;">{val_a:.1f} TV</strong> ({pct_a}th %ile)</span>
-                    </div>
-                    <div style="font-size:0.74rem; color:#475569; margin-top:6px; border-top:1px solid #e2e8f0; padding-top:6px;">
-                        <strong>Starting Lineup Adjustments:</strong>
+
+                    <div style="font-size:0.74rem; color:#475569; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;">
+                        <strong>⚡ Starting Lineup Adjustments:</strong>
                         <ul style="padding-left:16px; margin:4px 0 0 0; color:#334155;">{moves_b_html}</ul>
                     </div>
                 </div>
@@ -1199,4 +1274,270 @@ def render_trade_finder_view(
         mo.Html(matrix_table),
         mo.Html(recs_section),
         calc_box
+    ], gap=1)
+
+
+def render_player_market_view(
+    val_df: pd.DataFrame,
+    unique_teams: List[str],
+    owner_colors: Dict[str, str],
+    pos_filter: str,
+    team_filter: str,
+    search_query: str,
+    mo: Any,
+    chart_width: int = 860
+) -> Any:
+    """
+    Render the dedicated Player Market & Value Analysis page.
+    Includes:
+    - Top Market Asset KPIs
+    - Buy-Low & Sell-High Trade Radar
+    - Interactive Altair Value Scatter Plot (TV vs PPG)
+    - Full Searchable & Filterable League-Wide Market Value Table
+    """
+    if val_df is None or val_df.empty:
+        return mo.md("No player market data available.")
+
+    from src.visual import build_market_value_scatter_chart
+
+    # Apply filters
+    filtered = val_df.copy()
+    if pos_filter and pos_filter != "ALL":
+        filtered = filtered[filtered["position"] == pos_filter]
+    if team_filter and team_filter != "ALL":
+        filtered = filtered[filtered["team_name"] == team_filter]
+    if search_query and search_query.strip():
+        q = search_query.strip().lower()
+        filtered = filtered[filtered["player_name"].str.lower().str.contains(q, na=False)]
+
+    # 1. KPI Cards
+    sorted_all = val_df.sort_values(by="trade_value", ascending=False)
+    top_asset = sorted_all.iloc[0] if not sorted_all.empty else None
+
+    # Buy-Low candidate
+    buy_low_cands = val_df[
+        ((val_df["injury_status"].isin(["Questionable", "Out", "IR", "Doubtful"])) | (val_df["games_played"] <= 2)) &
+        (val_df["score"] >= 12.0)
+    ].sort_values(by="score", ascending=False)
+    top_buy_low = buy_low_cands.iloc[0] if not buy_low_cands.empty else None
+
+    # Sell-High candidate
+    sell_high_cands = val_df[
+        (val_df["score"] >= 15.0) & (val_df["std_points"] >= 10.0)
+    ].sort_values(by="std_points", ascending=False)
+    top_sell_high = sell_high_cands.iloc[0] if not sell_high_cands.empty else None
+
+    # Capital leader team
+    team_cap = val_df.groupby("team_name")["trade_value"].sum().sort_values(ascending=False)
+    top_cap_team = team_cap.index[0] if not team_cap.empty else "N/A"
+    top_cap_val = team_cap.iloc[0] if not team_cap.empty else 0.0
+
+    kpi_boxes = f"""
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:12px; margin-bottom:16px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <!-- Top Asset -->
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">👑 #1 Overall Asset</div>
+            <div style="font-size:1.25rem; font-weight:800; color:#0f172a; margin:4px 0;">{top_asset['player_name'] if top_asset is not None else 'N/A'}</div>
+            <div style="font-size:0.75rem; color:#7c3aed; font-weight:700;">{top_asset['trade_value']:.1f} TV <span style="color:#64748b; font-weight:normal;">({top_asset['position']} • {top_asset['team_name']})</span></div>
+        </div>
+
+        <!-- Top Buy-Low -->
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="font-size:0.75rem; font-weight:700; color:#16a34a; text-transform:uppercase; letter-spacing:0.5px;">📈 Top Buy-Low Target</div>
+            <div style="font-size:1.25rem; font-weight:800; color:#0f172a; margin:4px 0;">{top_buy_low['player_name'] if top_buy_low is not None else 'N/A'}</div>
+            <div style="font-size:0.75rem; color:#15803d; font-weight:700;">{top_buy_low['score']:.1f} PPG <span style="color:#64748b; font-weight:normal;">({top_buy_low['trade_value']:.1f} TV • {top_buy_low['injury_status']})</span></div>
+        </div>
+
+        <!-- Top Sell-High -->
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="font-size:0.75rem; font-weight:700; color:#b45309; text-transform:uppercase; letter-spacing:0.5px;">⚡ Peak Volatility (Sell-High)</div>
+            <div style="font-size:1.25rem; font-weight:800; color:#0f172a; margin:4px 0;">{top_sell_high['player_name'] if top_sell_high is not None else 'N/A'}</div>
+            <div style="font-size:0.75rem; color:#b45309; font-weight:700;">±{top_sell_high['std_points']:.1f} SD <span style="color:#64748b; font-weight:normal;">({top_sell_high['score']:.1f} PPG • {top_sell_high['team_name']})</span></div>
+        </div>
+
+        <!-- Asset Capital Leader -->
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">💼 Asset Capital Leader</div>
+            <div style="font-size:1.25rem; font-weight:800; color:#0f172a; margin:4px 0;">{top_cap_team}</div>
+            <div style="font-size:0.75rem; color:#2563eb; font-weight:700;">{top_cap_val:.1f} Total TV <span style="color:#64748b; font-weight:normal;">(Deepest trade equity)</span></div>
+        </div>
+    </div>
+    """
+
+    # 2. Buy-Low & Sell-High Radar Cards
+    def _render_radar_items(cands, is_buy=True):
+        items = []
+        for _, r in cands.head(3).iterrows():
+            pos = r["position"]
+            score = float(r["score"])
+            tv = float(r["trade_value"])
+            sd = float(r.get("std_points", 0.0))
+            gp = int(r.get("games_played", 0))
+            inj = str(r.get("injury_status", "Healthy"))
+
+            if is_buy:
+                note = f"{score:.1f} PPG ({gp} GP)" if gp <= 1 else f"{inj} discount ({score:.1f} PPG)"
+                color = "#15803d"
+                bg = "#f0fdf4"
+                border = "#bbf7d0"
+            else:
+                note = f"High Boom/Bust: ±{sd:.1f} SD ({score:.1f} PPG)"
+                color = "#b45309"
+                bg = "#fffbeb"
+                border = "#fde68a"
+
+            item_html = f"""
+            <div style="background:{bg}; border:1px solid {border}; border-radius:8px; padding:8px 12px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <img src="{r.get('headshot_url', '')}" style="width:32px; height:32px; border-radius:50%; object-fit:cover; background:#ffffff; border:1px solid #e2e8f0;" onerror="this.src='https://sleepercdn.com/images/v2/icons/player_default.webp'"/>
+                    <div>
+                        <div style="font-weight:700; font-size:0.86rem; color:#0f172a;">{r['player_name']} <span style="font-size:0.74rem; color:#64748b;">({pos} • {r['team_name']})</span></div>
+                        <div style="font-size:0.72rem; color:{color}; font-weight:600;">{note}</div>
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-weight:800; font-size:0.95rem; color:#7c3aed;">{tv:.1f} TV</div>
+                    <div style="font-size:0.68rem; color:#94a3b8;">#{r.get('pos_rank', 99)} {pos}</div>
+                </div>
+            </div>
+            """
+            items.append(item_html)
+        return "".join(items)
+
+    radar_box = f"""
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <!-- Buy-Low Radar -->
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+                <span style="font-size:1.1rem;">🎯</span>
+                <div>
+                    <div style="font-weight:800; font-size:0.92rem; color:#0f172a;">Target Buy-Low Candidates</div>
+                    <div style="font-size:0.72rem; color:#64748b;">Studs with depressed market values due to small sample sizes or minor injuries.</div>
+                </div>
+            </div>
+            {_render_radar_items(buy_low_cands, is_buy=True)}
+        </div>
+
+        <!-- Sell-High Radar -->
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+            <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+                <span style="font-size:1.1rem;">⚡</span>
+                <div>
+                    <div style="font-weight:800; font-size:0.92rem; color:#0f172a;">Target Sell-High Candidates</div>
+                    <div style="font-size:0.72rem; color:#64748b;">Players carrying volatile boom-bust profiles currently valued at peak market output.</div>
+                </div>
+            </div>
+            {_render_radar_items(sell_high_cands, is_buy=False)}
+        </div>
+    </div>
+    """
+
+    # 3. Scatter Chart
+    scatter_chart = build_market_value_scatter_chart(
+        val_data=filtered,
+        unique_teams=unique_teams,
+        owner_colors=owner_colors,
+        chart_width=chart_width,
+        chart_height=480
+    )
+
+    chart_header = """
+    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px 14px 0 0; padding:14px 18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-bottom:1px solid #e2e8f0; margin-top:6px;">
+        <div style="font-weight:800; font-size:0.96rem; color:#0f172a;">📈 Player Market Trade Value vs. Mean Fantasy Production</div>
+        <div style="font-size:0.75rem; color:#64748b; margin-top:2px;">Comparing raw weekly scoring (PPG) against scarcity-adjusted trade equity (TV). Upper-right quadrant represents league-winning anchors.</div>
+    </div>
+    """
+
+    # 4. League-Wide Market Value Table
+    pos_colors = {
+        'QB': '#f43f5e',
+        'RB': '#06b6d4',
+        'WR': '#3b82f6',
+        'TE': '#f59e0b',
+        'K': '#a855f7',
+        'DEF': '#64748b'
+    }
+
+    table_rows = []
+    for rank_idx, (_, r) in enumerate(filtered.sort_values(by="trade_value", ascending=False).iterrows(), 1):
+        pos = r.get("position", "WR")
+        pos_badge = f"<span style='background:{pos_colors.get(pos, '#2563eb')}; color:#ffffff; font-weight:700; font-size:0.72rem; border-radius:4px; padding:2px 6px;'>{pos}</span>"
+        t_name = r.get("team_name", "Free Agent")
+        o_color = owner_colors.get(t_name, "#94a3b8")
+        owner_badge = f"<span style='display:inline-flex; align-items:center; gap:4px; font-weight:600; font-size:0.78rem; color:#0f172a;'><span style='width:8px; height:8px; border-radius:50%; background:{o_color};'></span>{t_name}</span>"
+        
+        score = float(r.get("score", 0.0))
+        gp = int(r.get("games_played", 0))
+        gp_badge = f"<span style='background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:4px; padding:1px 5px; font-size:0.68rem; font-weight:700;'>⚠️ {gp} GP</span>" if gp <= 1 else f"<span style='color:#64748b; font-size:0.78rem;'>{gp} GP</span>"
+        
+        tv = float(r.get("trade_value", 0.0))
+        pct = int(r.get("pos_percentile", 50))
+        inj = str(r.get("injury_status", "Healthy")).strip()
+        if inj == "Healthy":
+            inj_html = "<span style='color:#16a34a; font-weight:600; font-size:0.76rem;'>Active</span>"
+        elif inj in ["Questionable", "Q"]:
+            inj_html = "<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:4px; padding:1px 5px; font-weight:700; font-size:0.70rem;'>Questionable</span>"
+        else:
+            inj_html = f"<span style='background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; border-radius:4px; padding:1px 5px; font-weight:700; font-size:0.70rem;'>{inj}</span>"
+
+        row_html = f"""
+        <tr style="border-bottom:1px solid #f1f5f9; height:48px;">
+            <td style="padding:8px 10px; font-weight:700; color:#64748b; font-size:0.80rem; width:40px;">#{rank_idx}</td>
+            <td style="padding:8px 6px; width:38px;">
+                <img src="{r.get('headshot_url', '')}" style="width:32px; height:32px; border-radius:50%; object-fit:cover; background:#f1f5f9; border:1px solid #e2e8f0;" onerror="this.src='https://sleepercdn.com/images/v2/icons/player_default.webp'"/>
+            </td>
+            <td style="padding:8px 12px; text-align:left;">
+                <div style="font-weight:700; font-size:0.86rem; color:#0f172a;">{r.get('player_name', '')}</div>
+                <div style="font-size:0.72rem; color:#64748b;">{r.get('nfl_team', '')}</div>
+            </td>
+            <td style="padding:8px 10px; text-align:center; width:55px;">{pos_badge}</td>
+            <td style="padding:8px 12px; text-align:left;">{owner_badge}</td>
+            <td style="padding:8px 12px; text-align:right; width:120px;">
+                <div style="font-weight:800; font-size:0.92rem; color:#7c3aed;">{tv:.1f} <span style="font-size:0.70rem; color:#64748b; font-weight:normal;">TV</span></div>
+                <div style="font-size:0.68rem; color:#94a3b8;">{pct}th %ile</div>
+            </td>
+            <td style="padding:8px 12px; text-align:right; font-weight:700; color:#0f172a; width:90px;">{score:.2f}</td>
+            <td style="padding:8px 10px; text-align:center; width:75px;">{gp_badge}</td>
+            <td style="padding:8px 10px; text-align:center; width:80px; font-size:0.80rem; color:#64748b;">±{float(r.get('std_points', 0.0)):.1f}</td>
+            <td style="padding:8px 12px; text-align:center; width:100px;">{inj_html}</td>
+        </tr>
+        """
+        table_rows.append(row_html)
+
+    table_box = f"""
+    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-top:18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);">
+        <div style="background:#f8fafc; padding:12px 18px; font-weight:700; font-size:0.92rem; color:#0f172a; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+            <span>📋 League Market Value & Trade Asset Registry</span>
+            <span style="font-size:0.75rem; color:#64748b; font-weight:500;">{len(filtered)} Players Matching Filters</span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:0.84rem;">
+                <thead>
+                    <tr style="background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.74rem; text-transform:uppercase; letter-spacing:0.5px;">
+                        <th style="padding:10px; width:40px;">#</th>
+                        <th style="padding:10px 6px; width:38px;"></th>
+                        <th style="padding:10px 12px; text-align:left;">Player</th>
+                        <th style="padding:10px; text-align:center; width:55px;">Pos</th>
+                        <th style="padding:10px 12px; text-align:left;">Fantasy Team</th>
+                        <th style="padding:10px 12px; text-align:right; width:120px;">Trade Value</th>
+                        <th style="padding:10px 12px; text-align:right; width:90px;">PPG</th>
+                        <th style="padding:10px; text-align:center; width:75px;">GP</th>
+                        <th style="padding:10px; text-align:center; width:80px;">Std Dev</th>
+                        <th style="padding:10px 12px; text-align:center; width:100px;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(table_rows)}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+    return mo.vstack([
+        mo.Html(kpi_boxes),
+        mo.Html(radar_box),
+        mo.Html(chart_header),
+        mo.ui.altair_chart(scatter_chart),
+        mo.Html(table_box)
     ], gap=1)
