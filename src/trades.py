@@ -1509,7 +1509,7 @@ def render_player_market_view(
             <td style="padding:8px 10px; text-align:center; width:55px;">{pos_badge}</td>
             <td style="padding:8px 12px; text-align:left;">{owner_badge}</td>
             <td style="padding:8px 12px; text-align:right; width:120px;">
-                <div style="font-weight:800; font-size:0.92rem; color:#7c3aed;">{tv:.1f} <span style="font-size:0.70rem; color:#64748b; font-weight:normal;">TV</span></div>
+                <div style="font-weight:800; font-size:0.92rem; color:#7c3aed;">{tv:.1f}</div>
                 <div style="font-size:0.68rem; color:#94a3b8;">{pct}th %ile</div>
             </td>
             <td style="padding:8px 12px; text-align:right; font-weight:700; color:#0f172a; width:90px;">{score:.2f}</td>
@@ -1535,7 +1535,7 @@ def render_player_market_view(
                         <th style="padding:10px 12px; text-align:left;">Player</th>
                         <th style="padding:10px; text-align:center; width:55px;">Pos</th>
                         <th style="padding:10px 12px; text-align:left;">Fantasy Team</th>
-                        <th style="padding:10px 12px; text-align:right; width:120px;">Trade Value</th>
+                        <th style="padding:10px 12px; text-align:right; width:120px;">Trade Value (TV)</th>
                         <th style="padding:10px 12px; text-align:right; width:90px;">PPG</th>
                         <th style="padding:10px; text-align:center; width:75px;">GP</th>
                         <th style="padding:10px; text-align:center; width:80px;">Std Dev</th>
