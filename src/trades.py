@@ -1314,17 +1314,33 @@ def render_player_market_view(
     sorted_all = val_df.sort_values(by="trade_value", ascending=False)
     top_asset = sorted_all.iloc[0] if not sorted_all.empty else None
 
-    # Buy-Low candidate
-    buy_low_cands = val_df[
-        ((val_df["injury_status"].isin(["Questionable", "Out", "IR", "Doubtful"])) | (val_df["games_played"] <= 2)) &
-        (val_df["score"] >= 12.0)
-    ].sort_values(by="score", ascending=False)
-    top_buy_low = buy_low_cands.iloc[0] if not buy_low_cands.empty else None
+    # Buy-Low Candidates:
+    # High-ceiling players (score >= 12.0) whose trade value is temporarily DEPRESSED (TV <= 50.0)
+    # due to injury or limited sample size (<= 2 GP). Elite, fully-priced assets (e.g. Bowers at 81.9 TV) are NOT buy-lows.
+    buy_low_mask = (
+        (val_df["score"] >= 12.0) &
+        (val_df["trade_value"] <= 50.0) &
+        ((val_df["injury_status"].isin(["Questionable", "Out", "IR", "Doubtful"])) | (val_df["games_played"] <= 2))
+    )
+    buy_low_cands = val_df[buy_low_mask].sort_values(by="score", ascending=False)
+    buy_low_ids = set(buy_low_cands["player_id"].astype(str).tolist())
 
-    # Sell-High candidate
-    sell_high_cands = val_df[
-        (val_df["score"] >= 15.0) & (val_df["std_points"] >= 10.0)
-    ].sort_values(by="std_points", ascending=False)
+    # Prioritize skill positions (WR, RB, TE) for top buy-low card
+    skill_buy_low = buy_low_cands[buy_low_cands["position"].isin(["RB", "WR", "TE"])]
+    top_buy_low = skill_buy_low.iloc[0] if not skill_buy_low.empty else (buy_low_cands.iloc[0] if not buy_low_cands.empty else None)
+
+    # Sell-High Candidates:
+    # Must be currently HEALTHY, with substantial trade equity (TV >= 25.0) and high scoring (score >= 15.0),
+    # but accompanied by high volatility / boom-bust risk (std_points >= 8.0).
+    # STRICT DISJOINT GUARANTEE: Never include any player flagged in the Buy-Low list!
+    sell_high_mask = (
+        (~val_df["player_id"].astype(str).isin(buy_low_ids)) &
+        (val_df["injury_status"] == "Healthy") &
+        (val_df["trade_value"] >= 25.0) &
+        (val_df["score"] >= 15.0) &
+        (val_df["std_points"] >= 8.0)
+    )
+    sell_high_cands = val_df[sell_high_mask].sort_values(by="std_points", ascending=False)
     top_sell_high = sell_high_cands.iloc[0] if not sell_high_cands.empty else None
 
     # Capital leader team
