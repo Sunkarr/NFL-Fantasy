@@ -12,7 +12,7 @@ except ImportError:
     pass
 
 # Application Version (managed directly in code repository)
-VERSION = "1.8.0"
+VERSION = "1.9.2"
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,13 +23,15 @@ PLAYERS_CACHE_FILE = DATA_DIR / "players.json"
 
 # League Configuration (populated from .env or environment variables)
 DEFAULT_LEAGUE_ID = os.getenv("LEAGUE_ID", "")
-DEFAULT_TEAM_NAME = os.getenv("TEAM_NAME", "")
+DEFAULT_TEAM_NAME = os.getenv("TEAM_NAME", "") or os.getenv("DEFAULT_TEAM_NAME", "")
+CURRENT_SEASON = os.getenv("CURRENT_SEASON", "2026")
+DEFAULT_LIMIT = int(os.getenv("DEFAULT_LIMIT", 20))
 
 # Sync Schedule Configuration (every 30 minutes on the hour and half-hour)
 SYNC_CRON = os.getenv("SYNC_CRON", "0,30 * * * *")
 SYNC_INTERVAL_DESC = "Every 30 min (:00, :30)"
 
-# Color Palette for Owners
+# Colors & Visualization
 TEAM_PALETTE = [
     '#38bdf8',  # Sky Blue
     '#34d399',  # Emerald Green
@@ -44,3 +46,7 @@ TEAM_PALETTE = [
 ]
 
 FREE_AGENT_COLOR = '#94a3b8'  # Slate grey
+
+# Database sync metadata keys
+METADATA_LAST_SYNC = "last_sync_timestamp"
+METADATA_VERSION = "schema_version"

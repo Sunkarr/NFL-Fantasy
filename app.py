@@ -24,6 +24,13 @@ def _():
     )
     from src.sync import start_background_scheduler
     from src.visual import build_interactive_position_chart, get_owner_color_map
+    from src.trades import (
+        analyze_team_needs_and_surplus,
+        calculate_player_trade_values,
+        generate_trade_recommendations,
+        render_trade_finder_view,
+        simulate_custom_trade
+    )
 
     # Ensure in-process background auto-sync scheduler is running (reliable across local & Docker environments)
     start_background_scheduler(league_id=DEFAULT_LEAGUE_ID)
@@ -76,9 +83,12 @@ def _():
         DEFAULT_LEAGUE_ID,
         DEFAULT_TEAM_NAME,
         VERSION,
+        analyze_team_needs_and_surplus,
         build_interactive_position_chart,
+        calculate_player_trade_values,
         compute_player_aggregates,
         format_last_sync,
+        generate_trade_recommendations,
         get_last_sync_time,
         get_league_overview_analytics,
         get_luck_and_all_play_analytics,
@@ -92,6 +102,8 @@ def _():
         np,
         optimize_team_lineup,
         render_optimizer_view,
+        render_trade_finder_view,
+        simulate_custom_trade,
     )
 
 
@@ -111,6 +123,7 @@ def _(mo):
     nav_tabs = mo.ui.tabs({
         "🏆 League Overview": mo.md(""),
         "🍀 Luck & All-Play": mo.md(""),
+        "🤝 Trade Finder": mo.md(""),
         "🛡️ Team Analytics": mo.md(""),
         "⚡ Team Optimizer": mo.md(""),
         "📊 Position Scatter": mo.md("")
@@ -246,6 +259,84 @@ def _(DB_PATH, DEFAULT_LEAGUE_ID, DEFAULT_TEAM_NAME, mo):
 
 
 @app.cell
+def _(DEFAULT_TEAM_NAME, mo, unique_teams):
+    # Persistent Trade Finder Team & Focus UI controls
+    _t_names = unique_teams if unique_teams else (["wetschproblem"] if not DEFAULT_TEAM_NAME else [DEFAULT_TEAM_NAME])
+    _def_a = DEFAULT_TEAM_NAME if DEFAULT_TEAM_NAME in _t_names else _t_names[0]
+    _other_teams = [t for t in _t_names if t != _def_a]
+    _def_b = _other_teams[0] if _other_teams else _def_a
+
+    trade_team_a_dropdown = mo.ui.dropdown(
+        options=_t_names,
+        value=_def_a,
+        label="Team A:"
+    )
+    trade_team_b_dropdown = mo.ui.dropdown(
+        options=_t_names,
+        value=_def_b,
+        label="Team B:"
+    )
+    trade_focus_dropdown = mo.ui.dropdown(
+        options=["All Teams"] + _t_names,
+        value="All Teams",
+        label="Recommendations Focus:"
+    )
+    return trade_focus_dropdown, trade_team_a_dropdown, trade_team_b_dropdown
+
+
+@app.cell
+def _(
+    calculate_player_trade_values,
+    df_current_rosters,
+    df_player_stats,
+    mo,
+    trade_team_a_dropdown,
+    trade_team_b_dropdown,
+):
+    # Trade Calculator player selection options for Team A and Team B
+    val_df_calc = (
+        calculate_player_trade_values(df_current_rosters, df_player_stats)
+        if df_current_rosters is not None and not df_current_rosters.empty
+        else None
+    )
+
+    opts_a = {}
+    if val_df_calc is not None and not val_df_calc.empty and trade_team_a_dropdown.value:
+        t_a_p = val_df_calc[val_df_calc["team_name"] == trade_team_a_dropdown.value].sort_values(
+            by="score", ascending=False
+        )
+        for _, r in t_a_p.iterrows():
+            lbl = str(r["player_name"])
+            if lbl in opts_a:
+                lbl = f"{lbl} ({r['position']})"
+            opts_a[lbl] = str(r["player_id"])
+
+    opts_b = {}
+    if val_df_calc is not None and not val_df_calc.empty and trade_team_b_dropdown.value:
+        t_b_p = val_df_calc[val_df_calc["team_name"] == trade_team_b_dropdown.value].sort_values(
+            by="score", ascending=False
+        )
+        for _, r in t_b_p.iterrows():
+            lbl = str(r["player_name"])
+            if lbl in opts_b:
+                lbl = f"{lbl} ({r['position']})"
+            opts_b[lbl] = str(r["player_id"])
+
+    trade_pids_a_select = mo.ui.multiselect(
+        options=opts_a,
+        value=[],
+        label="Select Players from Team A:"
+    )
+
+    trade_pids_b_select = mo.ui.multiselect(
+        options=opts_b,
+        value=[],
+        label="Select Players from Team B:"
+    )
+    return trade_pids_a_select, trade_pids_b_select, val_df_calc
+
+
+@app.cell
 def _(
     limit_slider,
     min_pts_slider,
@@ -256,12 +347,15 @@ def _(
     opt_week_dropdown,
     pos_select,
     team_dropdown,
+    trade_focus_dropdown,
 ):
     # Filter bar renderer: displays active tab controls without re-instantiating them
     if nav_tabs.value == "📊 Position Scatter":
         _filter_bar = mo.hstack([pos_select, min_pts_slider, limit_slider], justify="start", align="center", gap=2)
     elif nav_tabs.value == "🛡️ Team Analytics":
         _filter_bar = mo.hstack([team_dropdown], justify="start", align="center", gap=2)
+    elif nav_tabs.value == "🤝 Trade Finder":
+        _filter_bar = mo.hstack([trade_focus_dropdown], justify="start", align="center", gap=2)
     elif nav_tabs.value == "⚡ Team Optimizer":
         _divider1 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
         _divider2 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
@@ -292,6 +386,7 @@ def _(
     DB_PATH,
     DEFAULT_LEAGUE_ID,
     VERSION,
+    analyze_team_needs_and_surplus,
     build_interactive_position_chart,
     df_current_rosters,
     df_matchups,
@@ -299,6 +394,7 @@ def _(
     df_team_matchups,
     df_teams,
     format_last_sync,
+    generate_trade_recommendations,
     get_current_nfl_week,
     get_last_sync_time,
     get_league_overview_analytics,
@@ -317,7 +413,14 @@ def _(
     pos_select,
     refresh_btn,
     render_optimizer_view,
+    render_trade_finder_view,
+    simulate_custom_trade,
     team_dropdown,
+    trade_focus_dropdown,
+    trade_pids_a_select,
+    trade_pids_b_select,
+    trade_team_a_dropdown,
+    trade_team_b_dropdown,
     unique_teams,
 ):
     _ = refresh_btn.value
@@ -358,6 +461,42 @@ def _(
 
         _view = mo.vstack([_content, _fixed_corner_badge], gap=1)
 
+    elif nav_tabs.value == "🤝 Trade Finder":
+        _focus_t = None if (not trade_focus_dropdown or trade_focus_dropdown.value == "All Teams") else trade_focus_dropdown.value
+        _analysis = analyze_team_needs_and_surplus(df_teams, df_current_rosters, df_player_stats)
+        _recs = generate_trade_recommendations(df_teams, df_current_rosters, df_player_stats, focus_team=_focus_t)
+
+        _calc_res = None
+        if (
+            trade_team_a_dropdown
+            and trade_team_b_dropdown
+            and trade_pids_a_select
+            and trade_pids_b_select
+            and (trade_pids_a_select.value or trade_pids_b_select.value)
+        ):
+            _calc_res = simulate_custom_trade(
+                team_a_name=trade_team_a_dropdown.value,
+                team_b_name=trade_team_b_dropdown.value,
+                team_a_pids=trade_pids_a_select.value,
+                team_b_pids=trade_pids_b_select.value,
+                df_teams=df_teams,
+                df_rosters=df_current_rosters,
+                df_player_stats=df_player_stats
+            )
+
+        _trade_view = render_trade_finder_view(
+            analysis=_analysis,
+            recommendations=_recs,
+            calc_result=_calc_res,
+            calc_team_a_control=trade_team_a_dropdown,
+            calc_team_b_control=trade_team_b_dropdown,
+            calc_pids_a_control=trade_pids_a_select,
+            calc_pids_b_control=trade_pids_b_select,
+            owner_colors=owner_colors,
+            mo=mo
+        )
+        _view = mo.vstack([_trade_view, _fixed_corner_badge], gap=1)
+
     elif nav_tabs.value == "🛡️ Team Analytics":
         if team_dropdown is None or not team_dropdown.value:
             _view = mo.md("Please select a team.")
@@ -389,77 +528,66 @@ def _(
                     f"""<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:18px 22px; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,0.03); font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:16px; padding-bottom:16px; border-bottom:1px solid #f1f5f9;"><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Team Record</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['wins']} - {_t['losses']}</div><div style="font-size:0.74rem; color:#94a3b8;">Total: {_t['total_fpts']:.1f} FPTS</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Starting PPG</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.74rem; color:#94a3b8;">Avg Starter Output / Wk</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Bench Depth</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['bench_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.74rem; color:#94a3b8;">{len(_t['bench_df'])} Bench Options</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Avg Pos Rank</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">#{_t['avg_pos_rank_starters']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Starters</span></div><div style="font-size:0.74rem; color:#94a3b8;">Bench: #{_t['avg_pos_rank_bench']:.1f} • All: #{_t['avg_pos_rank_total']:.1f}</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">⭐ Top 10 Assets</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['top_10_count']} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Players</span></div><div style="font-size:0.74rem; color:#94a3b8;">Top-10 at their position</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Roster Health</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{len(_t['all_roster_df']) - _t['injured_count']} <span style="font-size:0.95rem; font-weight:500; color:#94a3b8;">/ {len(_t['all_roster_df'])}</span></div><div style="font-size:0.74rem; color:#16a34a; font-weight:500;">{_t['injured_count']} Questionable / Out</div></div></div><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;"><div style="font-size:0.74rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-right:4px;">Starter Breakdown:</div>{''.join(_pos_pills)}</div></div>"""
                 )
 
-                # Slot Badge Generator
-                def _get_slot_badge(slot_name):
-                    _badges = {
-                        'QB': '<span style="display:inline-block; width:44px; text-align:center; background:#f43f5e; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">QB</span>',
-                        'RB': '<span style="display:inline-block; width:44px; text-align:center; background:#06b6d4; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">RB</span>',
-                        'WR': '<span style="display:inline-block; width:44px; text-align:center; background:#3b82f6; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">WR</span>',
-                        'TE': '<span style="display:inline-block; width:44px; text-align:center; background:#f59e0b; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">TE</span>',
-                        'FLEX': '<span style="display:inline-block; width:44px; text-align:center; background:linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #f59e0b 100%); color:#ffffff; font-weight:800; font-size:0.68rem; padding:3px 0; border-radius:6px; letter-spacing:0.5px;">WRT</span>',
-                        'K': '<span style="display:inline-block; width:44px; text-align:center; background:#a855f7; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">K</span>',
-                        'DEF': '<span style="display:inline-block; width:44px; text-align:center; background:#64748b; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">DEF</span>',
-                        'BN': '<span style="display:inline-block; width:44px; text-align:center; background:#e2e8f0; color:#475569; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">BN</span>'
-                    }
-                    return _badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
-
-                # Proportional, harmonious column widths
-                def _render_roster_table(df_subset, title_label):
-                    _rows_html = []
-                    for _, _r_player in df_subset.iterrows():
-                        _slot = _r_player['slot']
-                        _badge = _get_slot_badge(_slot)
-                        _img_url = _r_player['headshot_url']
-                        _p_name = _r_player['player_name']
-                        _p_team = _r_player['nfl_team']
-                        _p_pos = _r_player['position']
-
-                        # Consistency Badge
-                        _sd = _r_player['std_points']
-                        if _sd < 4.5:
-                            _cons_badge = f"<span style='color:#16a34a; font-weight:600; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span> ±{_sd:.1f} <span style='font-size:0.7rem; color:#94a3b8;'>Solid</span></span>"
-                        elif _sd < 9.0:
-                            _cons_badge = f"<span style='color:#b45309; font-weight:600; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'><span style='width:6px; height:6px; border-radius:50%; background:#f59e0b;'></span> ±{_sd:.1f} <span style='font-size:0.7rem; color:#94a3b8;'>Mod</span></span>"
+                # Lineup table generator with pin-point badges
+                def _build_roster_html(df_sub, title, is_starters=True):
+                    _rows = []
+                    for _, _r in df_sub.iterrows():
+                        _inj = _r['injury_status']
+                        if _inj == 'Healthy':
+                            _inj_html = "<span style='display:inline-flex; align-items:center; gap:4px; color:#16a34a; font-weight:600; font-size:0.75rem;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span>Active</span>"
+                        elif _inj in ['Questionable', 'Probable']:
+                            _inj_html = f"<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; border-radius:6px; padding:2px 7px; font-weight:700; font-size:0.72rem;'>{_inj}</span>"
                         else:
-                            _cons_badge = f"<span style='color:#dc2626; font-weight:600; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'><span style='width:6px; height:6px; border-radius:50%; background:#ef4444;'></span> ±{_sd:.1f} <span style='font-size:0.7rem; color:#94a3b8;'>Volatile</span></span>"
+                            _inj_html = f"<span style='background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; padding:2px 7px; font-weight:700; font-size:0.72rem;'>{_inj}</span>"
 
-                        # Status Badge
-                        _inj = _r_player['injury_status']
-                        if _inj in ['Healthy', 'Active', '', None]:
-                            _st_badge = "<span style='color:#16a34a; font-size:0.78rem; font-weight:600;'>Healthy</span>"
-                        elif _inj in ['Questionable', 'Q']:
-                            _st_badge = "<span style='background:#fef3c7; color:#b45309; border:1px solid #fde68a; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'>Questionable</span>"
-                        elif _inj in ['Out', 'IR', 'Doubtful']:
-                            _st_badge = f"<span style='background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'>{_inj}</span>"
-                        else:
-                            _st_badge = f"<span style='background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.74rem;'>{_inj}</span>"
-
-                        # Pos Rank Badge
-                        _rk = _r_player['pos_rank']
+                        _rk = _r['pos_rank']
                         if _rk <= 5:
-                            _rank_badge = f"<span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:2px 6px; font-weight:700; font-size:0.76rem;'>#{_rk}</span>"
-                        elif _rk <= 10:
-                            _rank_badge = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#334155; border-radius:6px; padding:2px 6px; font-weight:600; font-size:0.76rem;'>#{_rk}</span>"
+                            _rank_html = f"<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; border-radius:6px; padding:2px 8px; font-weight:800; font-size:0.75rem;'>#{_rk} Elite</span>"
+                        elif _rk <= 12:
+                            _rank_html = f"<span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.75rem;'>#{_rk} Starter</span>"
+                        elif _rk < 99:
+                            _rank_html = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.75rem;'>#{_rk}</span>"
                         else:
-                            _rank_badge = f"<span style='color:#94a3b8; font-size:0.78rem;'>#{_rk}</span>"
+                            _rank_html = "<span style='color:#94a3b8; font-size:0.75rem;'>—</span>"
 
-                        _min_p = _r_player['min_points']
-                        _max_p = _r_player['max_points']
-                        _range_str = f"{_min_p:.1f} – {_max_p:.1f}"
+                        _tier = _r['consistency_tier']
+                        if "Rock Solid" in _tier:
+                            _tier_html = "<span style='display:inline-flex; align-items:center; gap:4px; background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span>Rock Solid</span>"
+                        elif "Moderate" in _tier:
+                            _tier_html = "<span style='display:inline-flex; align-items:center; gap:4px; background:#fefce8; border:1px solid #fef08a; color:#854d0e; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.74rem;'><span style='width:6px; height:6px; border-radius:50%; background:#eab308;'></span>Moderate</span>"
+                        else:
+                            _tier_html = "<span style='display:inline-flex; align-items:center; gap:4px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'><span style='width:6px; height:6px; border-radius:50%; background:#ef4444;'></span>Boom / Bust</span>"
 
-                        _row = f"""<tr style='border-bottom: 1px solid #f1f5f9; height:48px;'><td style='padding:9px 8px; text-align:center; width:6%;'>{_badge}</td><td style='padding:9px 4px 9px 8px; width:4%; text-align:center;'><img src='{_img_url}' style='width:32px; height:32px; border-radius:50%; object-fit:cover; background:#f1f5f9;' onerror='this.src=\"https://sleepercdn.com/images/v2/icons/player_default.webp\"'></td><td style='padding:9px 16px 9px 8px; text-align:left; width:34%;'><div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_p_name}</div><div style='font-size:0.74rem; color:#64748b;'>{_p_pos} • {_p_team}</div></td><td style='padding:9px 10px; text-align:center; width:8%;'>{_rank_badge}</td><td style='padding:9px 14px; text-align:right; font-weight:700; font-size:0.92rem; color:#0f172a; width:11%;'>{_r_player['mean_points']:.2f}</td><td style='padding:9px 12px; text-align:left; width:15%;'>{_cons_badge}</td><td style='padding:9px 12px; text-align:right; color:#475569; font-size:0.82rem; width:11%;'>{_range_str}</td><td style='padding:9px 10px; text-align:center; width:11%;'>{_st_badge}</td></tr>"""
-                        _rows_html.append(_row)
+                        _slot_label = _r['slot']
+                        _pos_slot_colors = {
+                            'QB': '#f43f5e',
+                            'RB': '#06b6d4',
+                            'WR': '#3b82f6',
+                            'TE': '#f59e0b',
+                            'FLEX': '#8b5cf6',
+                            'K': '#a855f7',
+                            'DEF': '#64748b',
+                            'BN': '#94a3b8'
+                        }
+                        if is_starters:
+                            _slot_bg = _pos_slot_colors.get(_slot_label, _pos_slot_colors.get(_r.get('position', ''), '#2563eb'))
+                        else:
+                            _slot_bg = '#64748b'
 
-                    return mo.Html(
-                        f"""<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; margin-bottom:16px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.02); width:100%;'><div style='background:#f8fafc; padding:10px 16px; font-weight:700; font-size:0.88rem; color:#1e293b; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'><span>{title_label}</span><span style='font-size:0.75rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{len(df_subset)} Players</span></div><div style='overflow-x:auto;'><table style='width:100%; border-collapse:collapse; font-size:0.82rem;'><thead><tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.4px;'><th style='padding:9px 8px; text-align:center; width:6%;'>Slot</th><th style='padding:9px 4px 9px 8px; width:4%;'></th><th style='padding:9px 16px 9px 8px; text-align:left; width:34%;'>Player</th><th style='padding:9px 10px; text-align:center; width:8%;'>Pos Rank</th><th style='padding:9px 14px; text-align:right; width:11%;'>Mean FPTS</th><th style='padding:9px 12px; text-align:left; width:15%;'>Consistency (SD)</th><th style='padding:9px 12px; text-align:right; width:11%; line-height:1.2;'><div style='font-weight:700; color:#475569;'>Range</div><div style='font-size:0.68rem; color:#94a3b8; font-weight:normal; text-transform:none;'>Min – Max</div></th><th style='padding:9px 10px; text-align:center; width:11%;'>Status</th></tr></thead><tbody>{"".join(_rows_html)}</tbody></table></div></div>"""
-                    )
+                        _row_html = f"""<tr style='border-bottom: 1px solid #f1f5f9; height: 50px;'><td style='padding: 8px 10px; width: 65px;'><span style='background:{_slot_bg}; color:#ffffff; font-weight:700; font-size:0.75rem; border-radius:6px; padding:3px 8px; display:inline-block; text-align:center; min-width:44px;'>{_slot_label}</span></td><td style='padding: 8px 6px; width: 44px;'><img src='{_r['headshot_url']}' style='width:36px; height:36px; border-radius:50%; object-fit:cover; background:#e2e8f0; border:1px solid #cbd5e1;' onerror="this.src='https://sleepercdn.com/images/v2/icons/player_default.webp'"/></td><td style='padding: 8px 12px;'><div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_r['player_name']}</div><div style='font-size:0.74rem; color:#64748b;'>{_r['position']} • {_r['nfl_team']}</div></td><td style='padding: 8px 12px; text-align:center;'>{_rank_html}</td><td style='padding: 8px 12px; text-align:right; font-weight:700; font-size:0.9rem; color:#0f172a;'>{_r['mean_points']:.2f}</td><td style='padding: 8px 12px; text-align:right; font-size:0.84rem; color:#475569;'>±{_r['std_points']:.1f}</td><td style='padding: 8px 12px; text-align:center;'>{_tier_html}</td><td style='padding: 8px 12px; text-align:center;'>{_inj_html}</td><td style='padding: 8px 12px; text-align:center; font-size:0.82rem; color:#64748b;'>{_r['games_played']}</td></tr>"""
+                        _rows.append(_row_html)
+
+                    return f"""<div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);'><div style='background:#f8fafc; padding:12px 18px; font-weight:700; font-size:0.92rem; color:#0f172a; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'><span>{title}</span><span style='font-size:0.75rem; color:#64748b; font-weight:500;'>{len(df_sub)} Players</span></div><div style='overflow-x:auto;'><table style='width:100%; border-collapse:collapse; font-size:0.84rem;'><thead><tr style='background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;'><th style='padding:10px 10px; text-align:left; width:65px;'>Slot</th><th style='padding:10px 6px; width:44px;'></th><th style='padding:10px 12px; text-align:left;'>Player</th><th style='padding:10px 12px; text-align:center; width:110px;'>Pos Rank</th><th style='padding:10px 12px; text-align:right; width:90px;'>PPG</th><th style='padding:10px 12px; text-align:right; width:75px;'>Std Dev</th><th style='padding:10px 12px; text-align:center; width:125px;'>Consistency</th><th style='padding:10px 12px; text-align:center; width:100px;'>Status</th><th style='padding:10px 12px; text-align:center; width:65px;'>GP</th></tr></thead><tbody>{"".join(_rows)}</tbody></table></div></div>"""
+
+                _starters_html = _build_roster_html(_t['starters_df'], "⚡ Starting Lineup", is_starters=True)
+                _bench_html = _build_roster_html(_t['bench_df'], "🪵 Bench Depth", is_starters=False)
 
                 _view = mo.vstack([
                     _kpi_box,
-                    _render_roster_table(_t['starters_df'], "⚡ Starting Lineup"),
-                    _render_roster_table(_t['bench_df'], "🛋️ Bench"),
+                    mo.Html(_starters_html),
+                    mo.Html(_bench_html),
                     _fixed_corner_badge
-                ], gap=1)
+                ], gap=0)
 
     elif nav_tabs.value == "⚡ Team Optimizer":
         if team_dropdown is None or not team_dropdown.value:
