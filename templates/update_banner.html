@@ -6,13 +6,13 @@
         left: 50%;
         transform: translateX(-50%);
         z-index: 9999999;
-        background: rgba(15, 23, 42, 0.95);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(59, 130, 246, 0.55);
-        box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 0 22px rgba(59, 130, 246, 0.3);
+        background: rgba(15, 23, 42, 0.96);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(59, 130, 246, 0.6);
+        box-shadow: 0 14px 35px -4px rgba(0, 0, 0, 0.55), 0 0 25px rgba(59, 130, 246, 0.35);
         border-radius: 14px;
-        padding: 10px 18px;
+        padding: 11px 20px;
         display: none;
         align-items: center;
         gap: 14px;
@@ -39,7 +39,7 @@
         color: #ffffff;
         border: none;
         border-radius: 8px;
-        padding: 7px 14px;
+        padding: 7px 15px;
         font-weight: 700;
         font-size: 0.82rem;
         cursor: pointer;
@@ -47,21 +47,21 @@
         align-items: center;
         gap: 6px;
         white-space: nowrap;
-        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
         transition: all 0.15s ease;
     }
 
     .nfl-update-btn-reload:hover {
         background: #1d4ed8;
         transform: translateY(-1px);
-        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.45);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.5);
     }
 
     .nfl-update-btn-close {
         background: transparent;
         border: none;
         color: #64748b;
-        font-size: 1.15rem;
+        font-size: 1.2rem;
         padding: 4px 6px;
         cursor: pointer;
         line-height: 1;
@@ -99,15 +99,17 @@
     let dismissedEtag = null;
     let isBannerOpen = false;
     let lastCheckTime = 0;
+    let hasHadWebSocket = false;
 
     function createBannerDOM() {
-        if (document.getElementById('nfl-update-banner')) return document.getElementById('nfl-update-banner');
+        let banner = document.getElementById('nfl-update-banner');
+        if (banner) return banner;
         if (!document.body) return null;
 
-        const banner = document.createElement('div');
+        banner = document.createElement('div');
         banner.id = 'nfl-update-banner';
         banner.innerHTML = `
-            <div style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; min-width:34px; border-radius:50%; background:rgba(59, 130, 246, 0.2); border:1px solid rgba(59, 130, 246, 0.5); font-size:1.15rem; flex-shrink:0;">
+            <div style="display:flex; align-items:center; justify-content:center; width:36px; height:36px; min-width:36px; border-radius:50%; background:rgba(59, 130, 246, 0.25); border:1px solid rgba(59, 130, 246, 0.6); font-size:1.2rem; flex-shrink:0;">
                 🚀
             </div>
             <div style="display:flex; flex-direction:column; line-height:1.35; flex:1;">
@@ -137,7 +139,10 @@
         fetch(window.location.pathname || '/', { method: 'HEAD', cache: 'no-store' })
             .then(res => {
                 const etag = res.headers.get('etag');
-                if (etag) initialEtag = etag;
+                if (etag) {
+                    initialEtag = etag;
+                    console.log('[UpdateBanner] Initialized with build ETag:', initialEtag);
+                }
             })
             .catch(() => {});
     }
@@ -156,6 +161,7 @@
         if (banner) {
             banner.style.display = 'flex';
             isBannerOpen = true;
+            console.log('[UpdateBanner] 🚀 New version detected! Showing update banner.');
         }
     }
 
@@ -168,14 +174,14 @@
         }
     };
 
-    function checkForUpdate() {
+    function checkForUpdate(force) {
         const now = Date.now();
-        // Throttle checks to at most once every 30 seconds
-        if (now - lastCheckTime < 30000) return;
-        lastCheckTime = now;
+        // Throttle checks to at most once every 10 seconds unless forced
+        if (!force && now - lastCheckTime < 10000) return;
 
         fetch(window.location.pathname || '/', { method: 'HEAD', cache: 'no-store' })
             .then(res => {
+                lastCheckTime = Date.now();
                 const currentEtag = res.headers.get('etag');
                 if (currentEtag) {
                     if (initialEtag && initialEtag !== currentEtag) {
@@ -185,36 +191,47 @@
                     }
                 }
             })
-            .catch(() => {});
+            .catch(() => {
+                // If fetch failed, do not throttle so next attempt can retry quickly
+            });
     }
 
-    // 1. Zero-polling Trigger: WebSocket disconnect & reconnect
-    // When a new version is deployed on server, WebSocket drops and reconnects.
+    // 1. WebSocket Reconnect Hook
+    // Intercepts WebSocket to detect when backend disconnects and reconnects
     const origWS = window.WebSocket;
     if (origWS) {
         window.WebSocket = function(...args) {
             const ws = new origWS(...args);
+            ws.addEventListener('open', function() {
+                if (hasHadWebSocket) {
+                    // This is a RECONNECT! The server came back up after a restart
+                    setTimeout(function() { checkForUpdate(true); }, 1000);
+                }
+                hasHadWebSocket = true;
+            });
             ws.addEventListener('close', function() {
-                // Server restart detected; check once after it comes back up
-                setTimeout(checkForUpdate, 4000);
+                // When WS closes, server went down or network disconnected
+                // Try checks at 3s and 7s to catch server coming back up
+                setTimeout(function() { checkForUpdate(true); }, 3000);
+                setTimeout(function() { checkForUpdate(true); }, 7000);
             });
             return ws;
         };
         window.WebSocket.prototype = origWS.prototype;
     }
 
-    // 2. Zero-polling Trigger: Tab visibility & focus
-    // Checks only when user switches back to this tab
+    // 2. Tab visibility & focus
+    // Checks when user switches back to this tab
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'visible') {
-            checkForUpdate();
+            checkForUpdate(false);
         }
     });
     window.addEventListener('focus', function() {
-        checkForUpdate();
+        checkForUpdate(false);
     });
 
-    // 3. Zero-polling Trigger: Intercept 401 Invalid Server Token from Marimo's skew protection
+    // 3. Intercept 401 Invalid Server Token from Marimo's skew protection
     const origFetch = window.fetch;
     window.fetch = async function(...args) {
         const res = await origFetch.apply(this, args);
@@ -230,7 +247,7 @@
         return res;
     };
 
-    // 4. Ultra-passive fallback (every 10 minutes)
-    setInterval(checkForUpdate, 10 * 60 * 1000);
+    // 4. Ultra-passive fallback (every 5 minutes)
+    setInterval(function() { checkForUpdate(false); }, 5 * 60 * 1000);
 })();
 </script>
