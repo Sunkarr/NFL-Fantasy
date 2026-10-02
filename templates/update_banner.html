@@ -1,0 +1,236 @@
+<!-- Deployment Update Notification Banner & Skew Detection -->
+<style>
+    #nfl-update-banner {
+        position: fixed;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 9999999;
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(59, 130, 246, 0.55);
+        box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 0 22px rgba(59, 130, 246, 0.3);
+        border-radius: 14px;
+        padding: 10px 18px;
+        display: none;
+        align-items: center;
+        gap: 14px;
+        color: #ffffff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        animation: slideDownUpdateBanner 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        max-width: min(92vw, 680px);
+        box-sizing: border-box;
+    }
+
+    @keyframes slideDownUpdateBanner {
+        from {
+            transform: translate(-50%, -120%);
+            opacity: 0;
+        }
+        to {
+            transform: translate(-50%, 0);
+            opacity: 1;
+        }
+    }
+
+    .nfl-update-btn-reload {
+        background: #2563eb;
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        padding: 7px 14px;
+        font-weight: 700;
+        font-size: 0.82rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+        transition: all 0.15s ease;
+    }
+
+    .nfl-update-btn-reload:hover {
+        background: #1d4ed8;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.45);
+    }
+
+    .nfl-update-btn-close {
+        background: transparent;
+        border: none;
+        color: #64748b;
+        font-size: 1.15rem;
+        padding: 4px 6px;
+        cursor: pointer;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.15s ease;
+    }
+
+    .nfl-update-btn-close:hover {
+        color: #cbd5e1;
+    }
+
+    @media (max-width: 540px) {
+        #nfl-update-banner {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+            padding: 12px 14px;
+        }
+        .nfl-update-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+    }
+</style>
+
+<script>
+(function() {
+    if (window.__nflUpdateBannerInit) return;
+    window.__nflUpdateBannerInit = true;
+
+    let initialEtag = null;
+    let dismissedEtag = null;
+    let isBannerOpen = false;
+    let lastCheckTime = 0;
+
+    function createBannerDOM() {
+        if (document.getElementById('nfl-update-banner')) return document.getElementById('nfl-update-banner');
+        if (!document.body) return null;
+
+        const banner = document.createElement('div');
+        banner.id = 'nfl-update-banner';
+        banner.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; min-width:34px; border-radius:50%; background:rgba(59, 130, 246, 0.2); border:1px solid rgba(59, 130, 246, 0.5); font-size:1.15rem; flex-shrink:0;">
+                🚀
+            </div>
+            <div style="display:flex; flex-direction:column; line-height:1.35; flex:1;">
+                <div style="font-weight:750; font-size:0.88rem; color:#f8fafc; display:flex; align-items:center; gap:6px;">
+                    <span>Neue Version verfügbar!</span>
+                    <span style="background:#2563eb; color:#ffffff; font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:10px; text-transform:uppercase; letter-spacing:0.4px;">Update</span>
+                </div>
+                <div style="font-size:0.77rem; color:#94a3b8; margin-top:2px;">
+                    Ein neues Dashboard-Update wurde bereitgestellt. Bitte aktualisiere den Tab, um die neuesten Daten & Features zu laden.
+                </div>
+            </div>
+            <div class="nfl-update-actions" style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button class="nfl-update-btn-reload" onclick="window.location.reload(true)">
+                    <span>🔄 Jetzt aktualisieren</span>
+                </button>
+                <button class="nfl-update-btn-close" onclick="window.dismissUpdateBanner()" title="Später">
+                    ✕
+                </button>
+            </div>
+        `;
+        document.body.appendChild(banner);
+        return banner;
+    }
+
+    // Grab initial ETag on startup
+    function fetchInitialEtag() {
+        fetch(window.location.pathname || '/', { method: 'HEAD', cache: 'no-store' })
+            .then(res => {
+                const etag = res.headers.get('etag');
+                if (etag) initialEtag = etag;
+            })
+            .catch(() => {});
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fetchInitialEtag);
+    } else {
+        fetchInitialEtag();
+    }
+
+    function showBanner(newEtag) {
+        if (isBannerOpen) return;
+        if (newEtag && newEtag === dismissedEtag) return;
+
+        const banner = createBannerDOM();
+        if (banner) {
+            banner.style.display = 'flex';
+            isBannerOpen = true;
+        }
+    }
+
+    window.dismissUpdateBanner = function() {
+        const banner = document.getElementById('nfl-update-banner');
+        if (banner) {
+            banner.style.display = 'none';
+            isBannerOpen = false;
+            if (initialEtag) dismissedEtag = initialEtag;
+        }
+    };
+
+    function checkForUpdate() {
+        const now = Date.now();
+        // Throttle checks to at most once every 30 seconds
+        if (now - lastCheckTime < 30000) return;
+        lastCheckTime = now;
+
+        fetch(window.location.pathname || '/', { method: 'HEAD', cache: 'no-store' })
+            .then(res => {
+                const currentEtag = res.headers.get('etag');
+                if (currentEtag) {
+                    if (initialEtag && initialEtag !== currentEtag) {
+                        showBanner(currentEtag);
+                    } else if (!initialEtag) {
+                        initialEtag = currentEtag;
+                    }
+                }
+            })
+            .catch(() => {});
+    }
+
+    // 1. Zero-polling Trigger: WebSocket disconnect & reconnect
+    // When a new version is deployed on server, WebSocket drops and reconnects.
+    const origWS = window.WebSocket;
+    if (origWS) {
+        window.WebSocket = function(...args) {
+            const ws = new origWS(...args);
+            ws.addEventListener('close', function() {
+                // Server restart detected; check once after it comes back up
+                setTimeout(checkForUpdate, 4000);
+            });
+            return ws;
+        };
+        window.WebSocket.prototype = origWS.prototype;
+    }
+
+    // 2. Zero-polling Trigger: Tab visibility & focus
+    // Checks only when user switches back to this tab
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            checkForUpdate();
+        }
+    });
+    window.addEventListener('focus', function() {
+        checkForUpdate();
+    });
+
+    // 3. Zero-polling Trigger: Intercept 401 Invalid Server Token from Marimo's skew protection
+    const origFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const res = await origFetch.apply(this, args);
+        if (res && res.status === 401) {
+            try {
+                res.clone().json().then(data => {
+                    if (data && (data.error === 'Invalid server token' || data.error === 'Missing server token')) {
+                        showBanner();
+                    }
+                }).catch(() => {});
+            } catch (_) {}
+        }
+        return res;
+    };
+
+    // 4. Ultra-passive fallback (every 10 minutes)
+    setInterval(checkForUpdate, 10 * 60 * 1000);
+})();
+</script>

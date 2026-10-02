@@ -3,7 +3,8 @@ import marimo
 __generated_with = "0.24.2"
 app = marimo.App(
     width="full",
-    app_title="🏈 NFL Fantasy Analytics"
+    app_title="🏈 NFL Fantasy Analytics",
+    html_head_file="templates/update_banner.html"
 )
 
 
