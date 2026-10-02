@@ -1,4 +1,4 @@
-<!-- Deployment Update Notification Banner & Skew Detection -->
+<!-- Deployment Update Notification Banner & Safe Polling -->
 <style>
     #nfl-update-banner {
         position: fixed;
@@ -99,7 +99,6 @@
     let dismissedEtag = null;
     let isBannerOpen = false;
     let lastCheckTime = 0;
-    let hasHadWebSocket = false;
 
     function createBannerDOM() {
         let banner = document.getElementById('nfl-update-banner');
@@ -134,14 +133,12 @@
         return banner;
     }
 
-    // Grab initial ETag on startup
     function fetchInitialEtag() {
         fetch(window.location.pathname || '/', { method: 'HEAD', cache: 'no-store' })
             .then(res => {
                 const etag = res.headers.get('etag');
                 if (etag) {
                     initialEtag = etag;
-                    console.log('[UpdateBanner] Initialized with build ETag:', initialEtag);
                 }
             })
             .catch(() => {});
@@ -161,7 +158,6 @@
         if (banner) {
             banner.style.display = 'flex';
             isBannerOpen = true;
-            console.log('[UpdateBanner] 🚀 New version detected! Showing update banner.');
         }
     }
 
@@ -174,14 +170,14 @@
         }
     };
 
-    function checkForUpdate(force) {
+    function checkForUpdate() {
         const now = Date.now();
-        // Throttle checks to at most once every 10 seconds unless forced
-        if (!force && now - lastCheckTime < 10000) return;
+        // Check at most once every 10 seconds
+        if (now - lastCheckTime < 10000) return;
+        lastCheckTime = now;
 
         fetch(window.location.pathname || '/', { method: 'HEAD', cache: 'no-store' })
             .then(res => {
-                lastCheckTime = Date.now();
                 const currentEtag = res.headers.get('etag');
                 if (currentEtag) {
                     if (initialEtag && initialEtag !== currentEtag) {
@@ -191,63 +187,20 @@
                     }
                 }
             })
-            .catch(() => {
-                // If fetch failed, do not throttle so next attempt can retry quickly
-            });
+            .catch(() => {});
     }
 
-    // 1. WebSocket Reconnect Hook
-    // Intercepts WebSocket to detect when backend disconnects and reconnects
-    const origWS = window.WebSocket;
-    if (origWS) {
-        window.WebSocket = function(...args) {
-            const ws = new origWS(...args);
-            ws.addEventListener('open', function() {
-                if (hasHadWebSocket) {
-                    // This is a RECONNECT! The server came back up after a restart
-                    setTimeout(function() { checkForUpdate(true); }, 1000);
-                }
-                hasHadWebSocket = true;
-            });
-            ws.addEventListener('close', function() {
-                // When WS closes, server went down or network disconnected
-                // Try checks at 3s and 7s to catch server coming back up
-                setTimeout(function() { checkForUpdate(true); }, 3000);
-                setTimeout(function() { checkForUpdate(true); }, 7000);
-            });
-            return ws;
-        };
-        window.WebSocket.prototype = origWS.prototype;
-    }
-
-    // 2. Tab visibility & focus
-    // Checks when user switches back to this tab
+    // Trigger on tab focus / visibility return
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'visible') {
-            checkForUpdate(false);
+            checkForUpdate();
         }
     });
     window.addEventListener('focus', function() {
-        checkForUpdate(false);
+        checkForUpdate();
     });
 
-    // 3. Intercept 401 Invalid Server Token from Marimo's skew protection
-    const origFetch = window.fetch;
-    window.fetch = async function(...args) {
-        const res = await origFetch.apply(this, args);
-        if (res && res.status === 401) {
-            try {
-                res.clone().json().then(data => {
-                    if (data && (data.error === 'Invalid server token' || data.error === 'Missing server token')) {
-                        showBanner();
-                    }
-                }).catch(() => {});
-            } catch (_) {}
-        }
-        return res;
-    };
-
-    // 4. Ultra-passive fallback (every 5 minutes)
-    setInterval(function() { checkForUpdate(false); }, 5 * 60 * 1000);
+    // Check every 30 seconds (tiny 0-byte HEAD request, zero impact)
+    setInterval(checkForUpdate, 30000);
 })();
 </script>
