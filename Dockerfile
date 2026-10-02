@@ -31,6 +31,7 @@ COPY src/ ./src/
 COPY app.py ./
 COPY downloader.py ./
 COPY scripts/ ./scripts/
+COPY templates/ ./templates/
 
 # Make scripts executable
 RUN chmod +x ./scripts/entrypoint.sh

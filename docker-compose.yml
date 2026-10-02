@@ -45,6 +45,7 @@ services:
       - ./src:/app/src
       - ./app.py:/app/app.py
       - ./scripts:/app/scripts
+      - ./templates:/app/templates
 
 volumes:
   caddy_data:
