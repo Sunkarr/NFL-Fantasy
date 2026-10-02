@@ -61,7 +61,7 @@ def calculate_player_trade_values(
         df["injury_status"] = df["injury_status"].fillna("Healthy")
 
     # Determine baseline score for trade evaluation
-    if mode == "projection" and projections:
+    if mode == "projection" and isinstance(projections, dict) and bool(projections):
         proj_scores = []
         for pid in df["player_id"]:
             p_val = float(projections.get(str(pid), projections.get(int(pid) if str(pid).isdigit() else "", 0.0)))
@@ -825,9 +825,15 @@ def render_trade_finder_view(
     </div>
     """
 
-    # SECTION 1: Positional Needs & Surplus Matrix
+    # SECTION 1: Positional Needs & Surplus Matrix (Decluttered modern build matching Weekly Matrix)
     matrix_rows = []
     positions = ["QB", "RB", "WR", "TE"]
+
+    # Find position leaders (#1 starter PPG) for crown highlights
+    pos_max: Dict[str, float] = {}
+    for pos in positions:
+        pos_scores = [prof["pos_analysis"].get(pos, {}).get("starter_avg_ppg", 0.0) for prof in team_profiles.values()]
+        pos_max[pos] = max(pos_scores) if pos_scores else 0.0
 
     for t_name, prof in team_profiles.items():
         t_dot = f"<span style='display:inline-block; width:10px; height:10px; border-radius:50%; background-color:{owner_colors.get(t_name, '#3b82f6')};'></span>"
@@ -842,70 +848,64 @@ def render_trade_finder_view(
             bench_cnt = p_data.get("bench_count", 0)
 
             if code in ["major_surplus", "surplus"]:
-                badge_bg = "#f0fdf4"
-                badge_border = "#bbf7d0"
-                badge_color = "#15803d"
-                icon = "🟢"
+                _status_text = "Surplus"
+                _status_color = "#16a34a"
+                _cell_bg = "rgba(22, 163, 74, 0.12)" if code == "major_surplus" else "rgba(22, 163, 74, 0.09)"
             elif code in ["major_need", "need"]:
-                badge_bg = "#fef2f2"
-                badge_border = "#fecaca"
-                badge_color = "#b91c1c"
-                icon = "🔴"
+                _status_text = "Deficit"
+                _status_color = "#dc2626"
+                _cell_bg = "rgba(220, 38, 38, 0.11)" if code == "major_need" else "rgba(220, 38, 38, 0.08)"
             else:
-                badge_bg = "#f8fafc"
-                badge_border = "#e2e8f0"
-                badge_color = "#475569"
-                icon = "⚪"
+                _status_text = "Even"
+                _status_color = "#64748b"
+                _cell_bg = "transparent"
+
+            is_top = (st_avg == pos_max.get(pos, -999) and st_avg > 0)
+            crown_html = (
+                f"<span style='font-size:0.8rem; margin-left:3px;' title='Position Starter Leader (#1 {pos})'>👑</span>"
+                if is_top else ""
+            )
 
             diff_str = f"+{diff:.1f}" if diff > 0 else f"{diff:.1f}"
-            tooltip = f"Starters: {st_avg:.1f} PPG ({diff_str} vs league avg {benchmarks.get(pos, 0.0):.1f}) | {bench_cnt} on bench"
+            tooltip = f"{pos}: {st_avg:.1f} PPG ({diff_str} vs league starter avg {benchmarks.get(pos, 0.0):.1f}) • {status} • {bench_cnt} on bench"
 
-            cell_html = f"""
-            <td style="padding:10px 12px; text-align:center; vertical-align:middle;">
-                <div style="display:inline-flex; flex-direction:column; align-items:center; gap:2px;" title="{tooltip}">
-                    <span style="background:{badge_bg}; border:1px solid {badge_border}; color:{badge_color}; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.76rem; white-space:nowrap;">
-                        {icon} {status}
-                    </span>
-                    <span style="font-size:0.72rem; color:#64748b; font-weight:600;">{st_avg:.1f} PPG <span style="font-size:0.68rem; color:#94a3b8;">({diff_str})</span></span>
-                </div>
-            </td>
-            """
+            cell_html = f"""<td style="padding:8px 8px; text-align:center; vertical-align:middle; background:{_cell_bg}; border-left:1px solid #f8fafc; border-right:1px solid #f8fafc;"><div style="display:flex; flex-direction:column; align-items:center; gap:2px;" title="{tooltip}"><div style="display:flex; align-items:center;"><span style="font-weight:750; color:#0f172a; font-size:0.92rem; letter-spacing:-0.2px;">{st_avg:.1f}</span>{crown_html}</div><div style="display:flex; align-items:center; gap:4px; font-size:0.73rem;"><span style="font-weight:800; color:{_status_color};">{_status_text}</span><span style="color:#94a3b8; font-size:0.7rem;">({diff_str})</span></div></div></td>"""
             pos_cells.append(cell_html)
 
         # Surplus / Trade bait chips
         surplus_badges = []
         for pos in prof["surplus_positions"]:
-            surplus_badges.append(f"<span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:5px; padding:2px 7px; font-weight:700; font-size:0.72rem; white-space:nowrap;'>+{pos}</span>")
+            surplus_badges.append(f"<span style='background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem; white-space:nowrap;'>+{pos}</span>")
         if not surplus_badges:
             surplus_html = "<span style='color:#94a3b8; font-size:0.75rem;'>None</span>"
         else:
             bait_names = [b["player_name"] for b in prof["trade_bait"][:2]]
-            bait_str = f"<div style='font-size:0.70rem; color:#64748b; margin-top:4px; white-space:nowrap;'>Bait: {', '.join(bait_names)}</div>" if bait_names else ""
+            bait_str = f"<div style='font-size:0.70rem; color:#64748b; margin-top:3px; white-space:nowrap;'>Bait: <span style='color:#334155; font-weight:600;'>{', '.join(bait_names)}</span></div>" if bait_names else ""
             surplus_html = f"<div style='display:flex; flex-direction:column; justify-content:center;'><div style='display:flex; gap:5px; flex-wrap:wrap; align-items:center;'>{''.join(surplus_badges)}</div>{bait_str}</div>"
 
-        # Needs chips (using robust flex layout with white-space:nowrap so badges never clip or break awkward text)
+        # Needs chips
         need_badges = []
         for pos in prof["need_positions"]:
-            need_badges.append(f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:5px; padding:2px 7px; font-weight:700; font-size:0.72rem; white-space:nowrap;'>Need {pos}</span>")
+            need_badges.append(f"<span style='background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem; white-space:nowrap;'>Need {pos}</span>")
         if not need_badges:
             need_html = "<span style='display:inline-flex; align-items:center; gap:5px; color:#15803d; font-size:0.75rem; font-weight:600;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span>Solid Depth</span>"
         else:
             need_html = f"<div style='display:flex; gap:5px; flex-wrap:wrap; align-items:center;'>{''.join(need_badges)}</div>"
 
         row = f"""
-        <tr style="border-bottom:1px solid #f1f5f9; height:54px;">
-            <td style="padding:10px 4px 10px 14px; width:20px; text-align:center;">{t_dot}</td>
-            <td style="padding:10px 10px 10px 4px; text-align:left; min-width:130px;">
+        <tr style="border-bottom:1px solid #f1f5f9; height:52px;">
+            <td style="padding:8px 4px 8px 14px; width:20px; text-align:center;">{t_dot}</td>
+            <td style="padding:8px 10px 8px 4px; text-align:left; min-width:130px;">
                 <div style="font-weight:700; font-size:0.86rem; color:#0f172a; white-space:nowrap;">{t_name}</div>
                 <div style="font-size:0.72rem; color:#64748b; white-space:nowrap;">{prof['owner_name']}</div>
             </td>
             {''.join(pos_cells)}
-            <td style="padding:10px 12px; vertical-align:middle; min-width:140px;">{surplus_html}</td>
-            <td style="padding:10px 12px; vertical-align:middle; min-width:160px;">{need_html}</td>
-            <td style="padding:10px 12px; text-align:right; font-weight:700; color:#0f172a; font-size:0.86rem; white-space:nowrap;">
+            <td style="padding:8px 12px; vertical-align:middle; min-width:140px;">{surplus_html}</td>
+            <td style="padding:8px 12px; vertical-align:middle; min-width:150px;">{need_html}</td>
+            <td style="padding:8px 12px; text-align:right; font-weight:800; color:#0f172a; font-size:0.88rem; white-space:nowrap;">
                 {prof['starter_score']:.1f}
             </td>
-            <td style="padding:10px 14px 10px 8px; text-align:right; color:#64748b; font-size:0.84rem; white-space:nowrap;">
+            <td style="padding:8px 14px 8px 8px; text-align:right; font-weight:700; color:#64748b; font-size:0.84rem; white-space:nowrap;">
                 {prof['bench_score']:.1f}
             </td>
         </tr>
@@ -913,15 +913,22 @@ def render_trade_finder_view(
         matrix_rows.append(row)
 
     # Benchmark Row
-    bm_cells = "".join([f"<td style='padding:10px 8px; text-align:center; font-weight:700; color:#2563eb; font-size:0.80rem; white-space:nowrap;'>{benchmarks.get(p, 0.0):.1f} PPG</td>" for p in positions])
+    bm_cells = "".join([f"<td style='padding:9px 8px; text-align:center; font-weight:750; color:#2563eb; font-size:0.86rem; white-space:nowrap;'>{benchmarks.get(p, 0.0):.1f}</td>" for p in positions])
+    avg_starter_total = float(np.mean([prof['starter_score'] for prof in team_profiles.values()])) if team_profiles else 0.0
+    avg_bench_total = float(np.mean([prof['bench_score'] for prof in team_profiles.values()])) if team_profiles else 0.0
     benchmark_row = f"""
-    <tr style="background:#f8fafc; font-weight:700; border-top:2px solid #e2e8f0; height:46px;">
-        <td colspan="2" style="padding:10px 14px; text-align:left; color:#475569; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap;">
+    <tr style="background:#f8fafc; font-weight:700; border-top:2px solid #e2e8f0; height:44px;">
+        <td colspan="2" style="padding:9px 14px; text-align:left; color:#475569; font-size:0.76rem; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap;">
             🎯 League Starter Avg
         </td>
         {bm_cells}
-        <td colspan="4" style="padding:10px 14px; text-align:left; color:#64748b; font-size:0.74rem; font-weight:500;">
-            Benchmark based on all 6 teams' starting lineups
+        <td style="padding:9px 12px; text-align:left; color:#94a3b8; font-size:0.75rem;">Benchmark</td>
+        <td style="padding:9px 12px; text-align:left; color:#94a3b8; font-size:0.75rem;">—</td>
+        <td style="padding:9px 12px; text-align:right; color:#2563eb; font-weight:800; font-size:0.86rem; white-space:nowrap;">
+            {avg_starter_total:.1f}
+        </td>
+        <td style="padding:9px 14px 9px 8px; text-align:right; color:#64748b; font-weight:700; font-size:0.84rem; white-space:nowrap;">
+            {avg_bench_total:.1f}
         </td>
     </tr>
     """
@@ -935,15 +942,15 @@ def render_trade_finder_view(
         <div style="overflow-x:auto;">
             <table style="width:100%; border-collapse:collapse; font-size:0.84rem;">
                 <thead>
-                    <tr style="background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.73rem; text-transform:uppercase; letter-spacing:0.5px;">
+                    <tr style="background:#fafbfc; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:0.74rem; text-transform:uppercase; letter-spacing:0.5px;">
                         <th style="padding:10px 4px 10px 14px; width:20px;"></th>
                         <th style="padding:10px 10px 10px 4px; text-align:left; min-width:130px;">Team / Manager</th>
-                        <th style="padding:10px 8px; text-align:center; min-width:98px;">QB Status</th>
-                        <th style="padding:10px 8px; text-align:center; min-width:98px;">RB Status</th>
-                        <th style="padding:10px 8px; text-align:center; min-width:98px;">WR Status</th>
-                        <th style="padding:10px 8px; text-align:center; min-width:98px;">TE Status</th>
+                        <th style="padding:10px 8px; text-align:center; min-width:95px;">QB</th>
+                        <th style="padding:10px 8px; text-align:center; min-width:95px;">RB</th>
+                        <th style="padding:10px 8px; text-align:center; min-width:95px;">WR</th>
+                        <th style="padding:10px 8px; text-align:center; min-width:95px;">TE</th>
                         <th style="padding:10px 12px; text-align:left; min-width:140px;">Surplus / Trade Bait</th>
-                        <th style="padding:10px 12px; text-align:left; min-width:160px;">Target Area (Need)</th>
+                        <th style="padding:10px 12px; text-align:left; min-width:150px;">Target Area (Need)</th>
                         <th style="padding:10px 12px; text-align:right; width:88px;">Starter PPG</th>
                         <th style="padding:10px 14px 10px 8px; text-align:right; width:82px;">Bench PPG</th>
                     </tr>

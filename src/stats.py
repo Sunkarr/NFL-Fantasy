@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 
 
 def compute_player_aggregates(df_stats: pd.DataFrame) -> pd.DataFrame:
@@ -67,7 +67,8 @@ def get_team_roster_analytics(
     team_name: str,
     df_rosters: pd.DataFrame,
     df_player_stats: pd.DataFrame,
-    df_teams: pd.DataFrame
+    df_teams: pd.DataFrame,
+    val_df: Optional[pd.DataFrame] = None
 ) -> Dict[str, Any]:
     """
     Compute dedicated team-level metrics:
@@ -98,6 +99,20 @@ def get_team_roster_analytics(
     merged['std_points'] = merged['std_points'].fillna(0.0)
     merged['pos_rank'] = merged['pos_rank'].fillna(99).astype(int)
     merged['injury_status'] = merged['injury_status'].fillna('Healthy')
+
+    # Calculate or map player trade values (0-100 scale)
+    if val_df is None and df_rosters is not None and not df_rosters.empty and df_player_stats is not None and not df_player_stats.empty:
+        try:
+            from src.trades import calculate_player_trade_values
+            val_df = calculate_player_trade_values(df_rosters, df_player_stats)
+        except Exception:
+            val_df = None
+
+    if val_df is not None and not val_df.empty and 'trade_value' in val_df.columns:
+        val_map = val_df.drop_duplicates(subset=['player_id']).set_index('player_id')['trade_value'].to_dict()
+        merged['trade_value'] = merged['player_id'].map(val_map).fillna(1.0).round(1)
+    else:
+        merged['trade_value'] = 0.0
 
     # Assign fantasy starting slots
     def assign_slots(df: pd.DataFrame) -> pd.DataFrame:
@@ -139,6 +154,9 @@ def get_team_roster_analytics(
     # Metrics
     starter_ppg = round(float(starters_df['mean_points'].sum()), 1)
     bench_ppg = round(float(bench_df['mean_points'].sum()), 1)
+    starter_tv = round(float(starters_df['trade_value'].sum()), 1) if not starters_df.empty else 0.0
+    bench_tv = round(float(bench_df['trade_value'].sum()), 1) if not bench_df.empty else 0.0
+    total_roster_tv = round(starter_tv + bench_tv, 1)
 
     # Top assets
     top_10_count = int((merged['pos_rank'] <= 10).sum())
@@ -194,6 +212,9 @@ def get_team_roster_analytics(
         'total_fpts': float(team_info['fpts']) if team_info is not None else 0.0,
         'starter_ppg': starter_ppg,
         'bench_ppg': bench_ppg,
+        'starter_tv': starter_tv,
+        'bench_tv': bench_tv,
+        'total_roster_tv': total_roster_tv,
         'top_10_count': top_10_count,
         'top_5_count': top_5_count,
         'injured_count': injured_count,
@@ -232,9 +253,17 @@ def get_league_overview_analytics(
     total_pf_sum = 0.0
     total_games_sum = 0
 
+    val_df = None
+    if df_rosters is not None and not df_rosters.empty and df_player_stats is not None and not df_player_stats.empty:
+        try:
+            from src.trades import calculate_player_trade_values
+            val_df = calculate_player_trade_values(df_rosters, df_player_stats)
+        except Exception:
+            val_df = None
+
     for idx, r in df_teams.reset_index(drop=True).iterrows():
         t_name = r['team_name']
-        an = get_team_roster_analytics(t_name, df_rosters, df_player_stats, df_teams)
+        an = get_team_roster_analytics(t_name, df_rosters, df_player_stats, df_teams, val_df=val_df)
         pf = float(r['fpts'])
         pa = float(r['fpts_against']) if 'fpts_against' in r else 0.0
         diff = round(pf - pa, 2)
@@ -265,6 +294,9 @@ def get_league_overview_analytics(
             'diff': diff,
             'starter_ppg': an['starter_ppg'],
             'bench_ppg': an['bench_ppg'],
+            'roster_tv': an.get('total_roster_tv', 0.0),
+            'starter_tv': an.get('starter_tv', 0.0),
+            'bench_tv': an.get('bench_tv', 0.0),
             'avg_pos_rank_starters': an['avg_pos_rank_starters'],
             'avg_pos_rank_bench': an['avg_pos_rank_bench'],
             'avg_pos_rank_total': an['avg_pos_rank_total'],
@@ -310,9 +342,13 @@ def get_luck_and_all_play_analytics(
     if df_teams is None or df_teams.empty or df_team_matchups is None or df_team_matchups.empty:
         return {}
 
-    # Detect completed weeks with positive scoring
-    week_sums = df_team_matchups.groupby('week')['points'].sum()
-    comp_weeks = sorted(week_sums[week_sums > 0].index.tolist())
+    # Detect completed weeks with positive scoring across all teams
+    num_teams = len(df_teams)
+    comp_weeks = []
+    for w, w_df in df_team_matchups.groupby('week'):
+        if len(w_df) >= num_teams and (w_df['points'] > 0).all():
+            comp_weeks.append(int(w))
+    comp_weeks = sorted(comp_weeks)
 
     if not comp_weeks:
         return {}
