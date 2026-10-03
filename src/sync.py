@@ -129,11 +129,15 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
 
         team_rows.append((rid, league_id, oid, team_name, owner_name, wins, losses, fpts, fpts_against, now))
 
-        players = r.get("players") or []
-        starters = set(r.get("starters") or [])
+        players = set(str(p) for p in (r.get("players") or []))
+        starters = set(str(p) for p in (r.get("starters") or []))
+        reserve = set(str(p) for p in (r.get("reserve") or []))
+        all_roster_pids = players | reserve
 
-        for pid in players:
-            roster_rows.append((league_id, rid, str(pid), 1 if str(pid) in starters else 0, now))
+        for pid in all_roster_pids:
+            is_st = 1 if pid in starters else 0
+            is_res = 1 if pid in reserve else 0
+            roster_rows.append((league_id, rid, pid, is_st, is_res, now))
 
     cur.executemany('''
         INSERT OR REPLACE INTO teams 
@@ -141,10 +145,11 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', team_rows)
 
+    cur.execute("DELETE FROM current_rosters WHERE league_id = ?", (league_id,))
     cur.executemany('''
-        INSERT OR REPLACE INTO current_rosters 
-        (league_id, roster_id, player_id, is_starter, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO current_rosters 
+        (league_id, roster_id, player_id, is_starter, is_reserve, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
     ''', roster_rows)
 
     conn.commit()
@@ -379,16 +384,14 @@ def start_background_scheduler(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download NFL Fantasy league data into local SQLite.")
+    parser = argparse.ArgumentParser(description="Sync Sleeper NFL Fantasy data into SQLite.")
     parser.add_argument("--league-id", default=DEFAULT_LEAGUE_ID, help="Sleeper League ID")
-    parser.add_argument("--mode", choices=["full", "incremental"], default="incremental", help="Sync mode")
-    parser.add_argument("--force-players", action="store_true", help="Force re-download of players database")
+    parser.add_argument("--mode", choices=["incremental", "full"], default="incremental", help="Sync mode")
+    parser.add_argument("--force-players", action="store_true", help="Force refresh of players database")
     args = parser.parse_args()
 
-    init_db(DB_PATH)
     run_full_sync(
         league_id=args.league_id,
         mode=args.mode,
-        force_players=args.force_players,
-        db_path=DB_PATH
+        force_players=args.force_players
     )

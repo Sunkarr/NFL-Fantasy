@@ -87,12 +87,21 @@ def get_team_roster_analytics(
     if team_roster.empty:
         return {}
 
+    cols_to_merge = ['player_id', 'is_starter']
+    if 'is_reserve' in team_roster.columns:
+        cols_to_merge.append('is_reserve')
+
     merged = pd.merge(
-        team_roster[['player_id', 'is_starter']],
+        team_roster[cols_to_merge],
         df_player_stats,
         on='player_id',
         how='left'
     )
+
+    if 'is_reserve' not in merged.columns:
+        merged['is_reserve'] = 0
+    else:
+        merged['is_reserve'] = merged['is_reserve'].fillna(0).astype(int)
 
     # Fill defaults for un-played/un-matched players
     merged['mean_points'] = merged['mean_points'].fillna(0.0)
@@ -138,18 +147,31 @@ def get_team_roster_analytics(
         if not flex_candidates.empty:
             flex_id = flex_candidates.iloc[0]['player_id']
             df.loc[df['player_id'] == flex_id, 'slot'] = 'FLEX'
+            allocated_ids.add(flex_id)
+
+        # Starters must strictly be those allocated to a starting slot
+        df.loc[df['slot'].isin(['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF']), 'is_starter'] = 1
+        df.loc[df['slot'] == 'BN', 'is_starter'] = 0
+
+        # Assign IR slot to reserve / IR players on bench
+        is_ir = (
+            (df['is_reserve'] == 1) |
+            (df['injury_status'].astype(str).str.strip().str.upper().isin(['IR', 'PUP'])) |
+            (df.get('status', pd.Series(dtype=object, index=df.index)).astype(str).str.strip().isin(['Injured Reserve', 'Physically Unable to Perform']))
+        )
+        df.loc[(df['is_starter'] == 0) & is_ir, 'slot'] = 'IR'
 
         return df
 
     merged = assign_slots(merged)
 
-    # Sort order
-    slot_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'FLEX': 5, 'K': 6, 'DEF': 7, 'BN': 8}
+    # Sort order: Starters first, then BN, and IR at the very bottom
+    slot_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'FLEX': 5, 'K': 6, 'DEF': 7, 'BN': 8, 'IR': 9}
     merged['slot_order'] = merged['slot'].map(lambda s: slot_order.get(s, 99))
     merged = merged.sort_values(by=['slot_order', 'mean_points'], ascending=[True, False]).reset_index(drop=True)
 
-    starters_df = merged[merged['is_starter'] == 1]
-    bench_df = merged[merged['is_starter'] == 0]
+    starters_df = merged[merged['is_starter'] == 1].reset_index(drop=True)
+    bench_df = merged[merged['is_starter'] == 0].reset_index(drop=True)
 
     # Metrics
     starter_ppg = round(float(starters_df['mean_points'].sum()), 1)
@@ -180,7 +202,11 @@ def get_team_roster_analytics(
     bench_inj_details = format_inj_list(injured_bench)
 
     # Average Positional Rank within position (excluding IR, only active starters & bench)
-    non_ir_roster = merged[merged['injury_status'].astype(str).str.strip().str.upper() != 'IR'].copy()
+    non_ir_roster = merged[
+        (merged['slot'] != 'IR') &
+        (merged['injury_status'].astype(str).str.strip().str.upper() != 'IR') &
+        (merged.get('is_reserve', 0) != 1)
+    ].copy()
     non_ir_starters = non_ir_roster[non_ir_roster['is_starter'] == 1]
     non_ir_bench = non_ir_roster[non_ir_roster['is_starter'] == 0]
 
@@ -203,6 +229,9 @@ def get_team_roster_analytics(
 
     # Team record info
     team_info = df_teams[df_teams['team_name'] == team_name].iloc[0] if not df_teams[df_teams['team_name'] == team_name].empty else None
+
+    ir_count = int((bench_df['slot'] == 'IR').sum())
+    bn_count = int(len(bench_df) - ir_count)
 
     return {
         'team_name': team_name,
@@ -228,7 +257,9 @@ def get_team_roster_analytics(
         'all_roster_df': merged,
         'avg_pos_rank_starters': avg_pos_rank_starters,
         'avg_pos_rank_bench': avg_pos_rank_bench,
-        'avg_pos_rank_total': avg_pos_rank_total
+        'avg_pos_rank_total': avg_pos_rank_total,
+        'ir_count': ir_count,
+        'bn_count': bn_count
     }
 
 
