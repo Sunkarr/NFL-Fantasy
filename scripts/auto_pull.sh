@@ -30,10 +30,13 @@ if [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
     # Completely prevents divergent branches, dirty file conflicts, or failed fast-forwards
     git reset --hard origin/main >> "$LOG_FILE" 2>&1
 
-    # Reload Docker Compose containers with the updated codebase
+    # Reload Docker Compose containers and restart the dashboard process
+    # Note: 'up -d' ensures services/ports are healthy, while 'restart fantasy-dashboard'
+    # forces Python in memory to reload mounted code changes immediately.
     if command -v docker >/dev/null 2>&1; then
         sudo docker compose up -d --remove-orphans >> "$LOG_FILE" 2>&1
+        sudo docker compose restart fantasy-dashboard >> "$LOG_FILE" 2>&1
     fi
 
-    echo "[$(date)] ✅ Code updated and compose services deployed." >> "$LOG_FILE"
+    echo "[$(date)] ✅ Code updated and dashboard restarted." >> "$LOG_FILE"
 fi
