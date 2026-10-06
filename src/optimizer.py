@@ -529,6 +529,13 @@ def optimize_team_lineup(
             p_sub = df_player_stats[["player_id", "injury_status", "headshot_url"]].drop_duplicates("player_id")
             roster_df = roster_df.merge(p_sub, on="player_id", how="left")
         
+        if df_rosters is not None and not df_rosters.empty and "is_reserve" in df_rosters.columns:
+            r_res = df_rosters[df_rosters["team_name"] == team_name][["player_id", "is_reserve"]].drop_duplicates("player_id")
+            roster_df = roster_df.merge(r_res, on="player_id", how="left")
+            roster_df["is_reserve"] = roster_df["is_reserve"].fillna(0).astype(int)
+        elif "is_reserve" not in roster_df.columns:
+            roster_df["is_reserve"] = 0
+
         if "injury_status" not in roster_df.columns:
             roster_df["injury_status"] = "Healthy"
         if "headshot_url" not in roster_df.columns:
@@ -685,8 +692,10 @@ def optimize_team_lineup(
     # 3. Calculate Mathematically Optimal Lineup Slot-by-Slot
     # Exclude severely injured players AND players on BYE week from eligible optimal starter pool
     if ignore_injured and mode != "retro":
+        is_reserve_mask = (roster_df["is_reserve"] == 1) if "is_reserve" in roster_df.columns else False
         eligible_pool = roster_df[
             (~roster_df["injury_status"].isin(severe_injuries)) &
+            (~is_reserve_mask) &
             (~roster_df["is_bye"])
         ].copy()
         if len(eligible_pool) < 9:
@@ -876,14 +885,32 @@ def optimize_team_lineup(
     ordered_curr_starters = [curr_by_slot[k] for k in slot_keys if k in curr_by_slot]
     optimal_starters = [opt_by_slot[k] for k in slot_keys if k in opt_by_slot]
 
-    # Remaining players form optimal bench
+    # Remaining players form optimal bench (categorized by BN and IR)
     optimal_bench = []
     pos_order = {"QB": 1, "RB": 2, "WR": 3, "TE": 4, "K": 5, "DEF": 6}
     for _, row in roster_df[~roster_df["player_id"].isin(picked_pids)].iterrows():
         d = row.to_dict()
-        d["slot"] = "BN"
+        inj_st = str(d.get("injury_status", "")).strip().upper()
+        p_st = str(d.get("status", "")).strip()
+        is_res = int(d.get("is_reserve", 0) or 0)
+        
+        is_ir = (
+            is_res == 1 or
+            inj_st in ["IR", "PUP"] or
+            p_st in ["Injured Reserve", "Physically Unable to Perform"]
+        )
+        d["slot"] = "IR" if is_ir else "BN"
         optimal_bench.append(d)
-    optimal_bench.sort(key=lambda x: (pos_order.get(x.get("position"), 99), -float(x.get("score") or 0)))
+
+    # Sort bench identically to Team Analytics:
+    # All active bench players (BN) first, IR players grouped at the bottom
+    optimal_bench.sort(
+        key=lambda x: (
+            1 if x.get("slot") == "IR" else 0,
+            pos_order.get(x.get("position"), 99),
+            -float(x.get("score") or 0)
+        )
+    )
 
     # 4. Total points and Deltas
     curr_score = round(sum(float(curr_by_slot[k].get("score") or 0.0) for k in slot_keys if k in curr_by_slot), 2)
@@ -1006,7 +1033,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             "FLEX": '<span style="display:inline-block; width:44px; text-align:center; background:linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #f59e0b 100%); color:#ffffff; font-weight:800; font-size:0.68rem; padding:3px 0; border-radius:6px; letter-spacing:0.5px;">FLEX</span>',
             "K": '<span style="display:inline-block; width:44px; text-align:center; background:#a855f7; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">K</span>',
             "DEF": '<span style="display:inline-block; width:44px; text-align:center; background:#64748b; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">DEF</span>',
-            "BN": '<span style="display:inline-block; width:44px; text-align:center; background:#e2e8f0; color:#475569; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">BN</span>'
+            "BN": '<span style="display:inline-block; width:44px; text-align:center; background:#64748b; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">BN</span>',
+            "IR": '<span style="display:inline-block; width:44px; text-align:center; background:#ef4444; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">IR</span>'
         }
         return badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
 
@@ -1402,7 +1430,7 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
         b_img = b.get("headshot_url", "")
         b_status = get_status_dot(b.get("injury_status", "Healthy"))
         b_bye = get_bye_badge(b.get("is_bye", False))
-        b_slot = get_slot_badge("BN")
+        b_slot = get_slot_badge(b.get("slot", "BN"))
 
         brow = f"""
         <tr style="border-bottom: 1px solid #f1f5f9;">
@@ -1428,11 +1456,19 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
         """
         bench_rows.append(brow)
 
+    # Calculate Bench vs IR count badge identical to Team Analytics
+    ir_cnt = sum(1 for b in optimal_bench if b.get("slot") == "IR")
+    if ir_cnt > 0:
+        bn_cnt = len(optimal_bench) - ir_cnt
+        bench_count_badge = f"{len(optimal_bench)} Players ({bn_cnt} BN + {ir_cnt} IR)"
+    else:
+        bench_count_badge = f"{len(optimal_bench)} Players"
+
     bench_html = f"""
     <div style='background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow:0 1px 4px rgba(0,0,0,0.03);'>
         <div style='background:#f8fafc; padding:10px 18px; font-weight:700; font-size:0.86rem; color:#1e293b; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;'>
             <span>🪑 Optimal Bench</span>
-            <span style='font-size:0.74rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{len(optimal_bench)} Players</span>
+            <span style='font-size:0.74rem; font-weight:600; color:#64748b; background:#ffffff; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px;'>{bench_count_badge}</span>
         </div>
         <div style='overflow-x:auto;'>
             <table style='width:100%; border-collapse:collapse; font-size:0.82rem;'>
