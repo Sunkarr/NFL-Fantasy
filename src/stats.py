@@ -71,7 +71,8 @@ def get_team_roster_analytics(
     val_df: Optional[pd.DataFrame] = None,
     week: Optional[int] = None,
     season: Optional[str] = None,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
+    league_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Compute dedicated team-level metrics:
@@ -126,6 +127,27 @@ def get_team_roster_analytics(
     else:
         merged['trade_value'] = 0.0
 
+    # Determine bye teams and live matchup starters for the target week
+    try:
+        from src.optimizer import get_current_nfl_week, get_nfl_bye_teams, is_player_on_bye, get_week_matchup_starters
+        from src.config import DB_PATH, CURRENT_SEASON, DEFAULT_LEAGUE_ID
+        target_week = week if week is not None else get_current_nfl_week()
+        target_season = season if season is not None else CURRENT_SEASON
+        target_league_id = league_id or DEFAULT_LEAGUE_ID
+        bye_teams = get_nfl_bye_teams(season=target_season, week=target_week, db_path=db_path or DB_PATH)
+        week_starters_map = get_week_matchup_starters(league_id=target_league_id, week=target_week)
+    except Exception:
+        bye_teams = set()
+        week_starters_map = {}
+
+    # Overlay live week matchup starters if available
+    team_info = df_teams[df_teams['team_name'] == team_name] if df_teams is not None and not df_teams.empty else pd.DataFrame()
+    roster_id = team_info['roster_id'].iloc[0] if not team_info.empty else (team_roster['roster_id'].iloc[0] if 'roster_id' in team_roster.columns else None)
+    if roster_id is not None and week_starters_map:
+        live_starters = set(str(p) for p in (week_starters_map.get(roster_id) or week_starters_map.get(str(roster_id)) or []))
+        if live_starters:
+            merged['is_starter'] = merged['player_id'].astype(str).isin(live_starters).astype(int)
+
     # Assign fantasy starting slots
     def assign_slots(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
@@ -155,16 +177,6 @@ def get_team_roster_analytics(
         # Starters must strictly be those allocated to a starting slot
         df.loc[df['slot'].isin(['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF']), 'is_starter'] = 1
         df.loc[df['slot'] == 'BN', 'is_starter'] = 0
-
-        # Determine bye teams for the target week
-        try:
-            from src.optimizer import get_current_nfl_week, get_nfl_bye_teams, is_player_on_bye
-            from src.config import DB_PATH, CURRENT_SEASON
-            target_week = week if week is not None else get_current_nfl_week()
-            target_season = season if season is not None else CURRENT_SEASON
-            bye_teams = get_nfl_bye_teams(season=target_season, week=target_week, db_path=db_path or DB_PATH)
-        except Exception:
-            bye_teams = set()
 
         # Assign IR slot to reserve / IR players on bench
         is_ir = (

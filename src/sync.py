@@ -87,7 +87,11 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
     l_res.raise_for_status()
     league_info = l_res.json()
     season = str(league_info.get("season", datetime.datetime.now().year))
-    current_week = int(league_info.get("settings", {}).get("leg", 1))
+    try:
+        from src.optimizer import get_current_nfl_week
+        current_week = get_current_nfl_week()
+    except Exception:
+        current_week = int(league_info.get("settings", {}).get("leg", 1))
 
     # Persist detected season in metadata
     set_sync_metadata("active_season", season, db_path=db_path)
