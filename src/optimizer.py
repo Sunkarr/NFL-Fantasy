@@ -3,13 +3,30 @@ import sqlite3
 import datetime
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 import pandas as pd
 import requests
 
 from src.config import DB_PATH, DEFAULT_LEAGUE_ID
 
 _current_week_cache: Tuple[Optional[int], float] = (None, 0.0)
+
+ALL_NFL_TEAMS: Set[str] = {
+    "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE",
+    "DAL", "DEN", "DET", "GB", "HOU", "IND", "JAX", "KC",
+    "LV", "LAC", "LAR", "MIA", "MIN", "NE", "NO", "NYG",
+    "NYJ", "PHI", "PIT", "SF", "SEA", "TB", "TEN", "WAS"
+}
+
+TEAM_SYNONYMS: Dict[str, str] = {
+    "JAC": "JAX",
+    "WSH": "WAS",
+    "OAK": "LV",
+    "SD": "LAC",
+    "STL": "LAR",
+}
+
+_bye_week_cache: Dict[Tuple[str, int], Set[str]] = {}
 
 
 def get_current_nfl_week() -> int:
@@ -75,6 +92,137 @@ def get_cached_or_live_projections(
     return {}
 
 
+def _save_bye_week_to_disk(season: str, week: int, byes: Set[str], cache_file: Path) -> None:
+    """Helper to persist dynamically detected bye week teams to disk."""
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+        data[str(week)] = sorted(list(byes))
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def get_nfl_bye_teams(
+    season: str = "2026",
+    week: Optional[int] = None,
+    projections: Optional[Dict[str, Any]] = None,
+    db_path: Path = DB_PATH
+) -> Set[str]:
+    """
+    Dynamically determine which NFL teams are on BYE for any given season and week.
+    Fully automated and season-agnostic:
+      1. Checks in-memory cache for speed.
+      2. Checks persistent local file cache (data/bye_weeks_{season}.json).
+      3. Discovers bye teams via Sleeper weekly projections (which include all active team defenses).
+      4. Falls back to ESPN public NFL scoreboard API for scheduled games.
+      5. Automatically caches results so future requests are instantaneous.
+    This guarantees that future seasons (2027 and beyond) work automatically with 0 manual code changes.
+    """
+    if week is None:
+        week = get_current_nfl_week()
+
+    s_str = str(season)
+    w_int = int(week)
+    cache_key = (s_str, w_int)
+
+    # 1. In-memory cache
+    if cache_key in _bye_week_cache:
+        return _bye_week_cache[cache_key]
+
+    # 2. Persistent disk cache
+    cache_file = db_path.parent / f"bye_weeks_{s_str}.json"
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                saved_byes = json.load(f)
+                if str(w_int) in saved_byes:
+                    byes = set(saved_byes[str(w_int)])
+                    _bye_week_cache[cache_key] = byes
+                    return byes
+        except Exception:
+            pass
+
+    # 3. Dynamic discovery from Sleeper weekly projections
+    projs = projections
+    if projs is None:
+        projs = get_cached_or_live_projections(season=s_str, week=w_int, db_path=db_path)
+
+    if projs and isinstance(projs, dict):
+        present_defs = {
+            TEAM_SYNONYMS.get(k, k)
+            for k in projs.keys()
+            if TEAM_SYNONYMS.get(k, k) in ALL_NFL_TEAMS
+        }
+        if 24 <= len(present_defs) <= 32:
+            byes = ALL_NFL_TEAMS - present_defs
+            _save_bye_week_to_disk(s_str, w_int, byes, cache_file)
+            _bye_week_cache[cache_key] = byes
+            return byes
+
+    # 4. Fallback: Query ESPN public NFL scoreboard API for scheduled games
+    try:
+        espn_url = f"http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={s_str}&seasontype=2&week={w_int}"
+        resp = requests.get(espn_url, timeout=4)
+        if resp.status_code == 200:
+            espn_data = resp.json()
+            playing_teams = set()
+            for ev in espn_data.get("events", []):
+                for comp in ev.get("competitions", []):
+                    for competitor in comp.get("competitors", []):
+                        abbrev = str(competitor.get("team", {}).get("abbreviation", "")).upper()
+                        norm = TEAM_SYNONYMS.get(abbrev, abbrev)
+                        if norm in ALL_NFL_TEAMS:
+                            playing_teams.add(norm)
+            if 24 <= len(playing_teams) <= 32:
+                byes = ALL_NFL_TEAMS - playing_teams
+                _save_bye_week_to_disk(s_str, w_int, byes, cache_file)
+                _bye_week_cache[cache_key] = byes
+                return byes
+    except Exception:
+        pass
+
+    return set()
+
+
+def is_player_on_bye(
+    team_val: Any,
+    pos_val: Any = "",
+    pid_val: Any = "",
+    bye_teams: Optional[Set[str]] = None
+) -> bool:
+    """Check if a player or defense is on bye given the bye teams set."""
+    if not bye_teams:
+        return False
+    team_str = str(team_val or "").upper().strip()
+    pos_str = str(pos_val or "").upper().strip()
+    pid_str = str(pid_val or "").upper().strip()
+
+    target = pid_str if (pos_str == "DEF" and pid_str in ALL_NFL_TEAMS) else team_str
+    if not target or target in ["FA", "FREE AGENT", "NONE", ""]:
+        return False
+    norm = TEAM_SYNONYMS.get(target, target)
+    return norm in bye_teams
+
+
+def get_bye_badge(is_bye: bool) -> str:
+    """Return a styled BYE badge pill if player is on bye."""
+    if not is_bye:
+        return ""
+    return (
+        '<span style="display:inline-flex; align-items:center; '
+        'background:#fef3c7; border:1px solid #fde68a; color:#b45309; '
+        'font-weight:800; font-size:0.68rem; padding:1px 6px; border-radius:4px; '
+        'letter-spacing:0.4px; vertical-align:middle;">BYE</span>'
+    )
+
 
 def get_league_scoring_settings(db_path: Path = DB_PATH, league_id: str = DEFAULT_LEAGUE_ID) -> Dict[str, float]:
     """Retrieve custom league scoring settings from sync_metadata or Sleeper API."""
@@ -138,14 +286,13 @@ def get_matchup_pairings(
     if cache_file.exists():
         try:
             mtime = cache_file.stat().st_mtime
-            # Cache valid for 30 minutes to capture finalized game scores
-            if (time.time() - mtime) < 1800:
+            if (time.time() - mtime) < 3600:
                 with open(cache_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
         except Exception:
-            data = None
+            pass
 
-    if data is None:
+    if data is None and league_id:
         try:
             res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/matchups/{week}", timeout=6)
             if res.status_code == 200:
@@ -201,6 +348,7 @@ def find_top_free_agents(
 ) -> Optional[Dict[str, Any]]:
     """
     Find the best available free agent at a given position based on projection or PPG.
+    Excludes injured players and players on a BYE week.
     """
     conn = sqlite3.connect(db_path)
     try:
@@ -216,11 +364,23 @@ def find_top_free_agents(
         return None
 
     p_info["player_id"] = p_info["player_id"].astype(str)
+    
     # Exclude rostered players and severely injured players
+    severe_injuries = ["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]
     fa_candidates = p_info[
         (~p_info["player_id"].isin(rostered_pids)) &
-        (~p_info["injury_status"].isin(["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]))
+        (~p_info["injury_status"].isin(severe_injuries))
     ].copy()
+
+    if fa_candidates.empty:
+        return None
+
+    # Exclude players whose NFL team is on BYE in the selected week
+    bye_teams = get_nfl_bye_teams(season=season, week=selected_week, db_path=db_path)
+    if bye_teams:
+        fa_candidates = fa_candidates[~fa_candidates["nfl_team"].apply(
+            lambda t: TEAM_SYNONYMS.get(str(t).upper(), str(t).upper()) in bye_teams
+        )].copy()
 
     if fa_candidates.empty:
         return None
@@ -262,6 +422,7 @@ def find_top_free_agents(
         "nfl_team": team,
         "score": round(float(best["score"]), 2),
         "injury_status": best.get("injury_status", "Healthy") or "Healthy",
+        "is_bye": False,
         "headshot_url": headshot_url
     }
 
@@ -299,6 +460,7 @@ def optimize_team_lineup(
     roster_id = int(team_info["roster_id"])
 
     # 1. Build base player list for the team
+    projections = None
     if mode == "retro":
         if df_matchups is None or df_matchups.empty:
             return {}
@@ -366,6 +528,24 @@ def optimize_team_lineup(
         roster_df["injury_status"] = "Healthy"
     else:
         roster_df["injury_status"] = roster_df["injury_status"].fillna("Healthy")
+
+    # Determine NFL bye teams for selected week
+    bye_teams = get_nfl_bye_teams(
+        season=season,
+        week=selected_week,
+        projections=projections if mode == "projection" else None,
+        db_path=db_path
+    )
+
+    # Flag players on BYE week
+    roster_df["is_bye"] = roster_df.apply(
+        lambda r: is_player_on_bye(r.get("nfl_team"), r.get("position"), r.get("player_id"), bye_teams),
+        axis=1
+    )
+
+    # In active/upcoming weeks, players on BYE have no game and score 0.0
+    if mode != "retro":
+        roster_df.loc[roster_df["is_bye"], "score"] = 0.0
 
     severe_injuries = ["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]
     if ignore_injured and mode != "retro":
@@ -444,15 +624,22 @@ def optimize_team_lineup(
         v["slot"] = slot_display_names.get(k, k)
 
     # 3. Calculate Mathematically Optimal Lineup Slot-by-Slot
-    # severe_injuries defined above: ["Out", "IR", "PUP", "Doubtful", "NA", "Sus"]
+    # Exclude severely injured players AND players on BYE week from eligible optimal starter pool
     if ignore_injured and mode != "retro":
-        eligible_pool = roster_df[~roster_df["injury_status"].isin(severe_injuries)].copy()
+        eligible_pool = roster_df[
+            (~roster_df["injury_status"].isin(severe_injuries)) &
+            (~roster_df["is_bye"])
+        ].copy()
+        if len(eligible_pool) < 9:
+            eligible_pool = roster_df[~roster_df["is_bye"]].copy()
         if len(eligible_pool) < 9:
             eligible_pool = roster_df.copy()
     else:
-        eligible_pool = roster_df.copy()
+        eligible_pool = roster_df[~roster_df["is_bye"]].copy()
+        if len(eligible_pool) < 9:
+            eligible_pool = roster_df.copy()
 
-    # Check for position shortages (e.g. 0 healthy QBs available)
+    # Check for position shortages (e.g. 0 healthy/active QBs available)
     starter_requirements = {
         "QB": 1,
         "RB": 2,
@@ -498,13 +685,19 @@ def optimize_team_lineup(
             # Filter healthy candidates first to avoid suggesting trading an injured superstar
             healthy_cands = bench_players[
                 (bench_players["position"] == surplus_pos) &
-                (~bench_players["injury_status"].isin(severe_injuries))
+                (~bench_players["injury_status"].isin(severe_injuries)) &
+                (~bench_players["is_bye"])
             ].sort_values(by="score", ascending=True)
 
             if not healthy_cands.empty:
                 cands_trade = healthy_cands
             else:
-                cands_trade = bench_players[bench_players["position"] == surplus_pos].sort_values(by="score", ascending=True)
+                cands_trade = bench_players[
+                    (bench_players["position"] == surplus_pos) &
+                    (~bench_players["is_bye"])
+                ].sort_values(by="score", ascending=True)
+                if cands_trade.empty:
+                    cands_trade = bench_players[~bench_players["is_bye"]].sort_values(by="score", ascending=True)
                 if cands_trade.empty:
                     cands_trade = bench_players.sort_values(by="score", ascending=True)
 
@@ -547,13 +740,24 @@ def optimize_team_lineup(
             picked_pids.add(row["player_id"])
             picked.append(row.to_dict())
 
-        # Fallback to general roster if position pool exhausted (e.g. all QBs injured)
+        # Fallback to non-bye players on roster if position pool exhausted
         if len(picked) < count:
             fallback = roster_df[
                 roster_df["position"].isin(pos_list) &
-                ~roster_df["player_id"].isin(picked_pids)
+                ~roster_df["player_id"].isin(picked_pids) &
+                ~roster_df["is_bye"]
             ].sort_values(by="score", ascending=False)
             for _, row in fallback.head(count - len(picked)).iterrows():
+                picked_pids.add(row["player_id"])
+                picked.append(row.to_dict())
+
+        # Final absolute fallback if entire roster at position is on bye
+        if len(picked) < count:
+            fallback_all = roster_df[
+                roster_df["position"].isin(pos_list) &
+                ~roster_df["player_id"].isin(picked_pids)
+            ].sort_values(by="score", ascending=False)
+            for _, row in fallback_all.head(count - len(picked)).iterrows():
                 picked_pids.add(row["player_id"])
                 picked.append(row.to_dict())
 
@@ -649,16 +853,19 @@ def optimize_team_lineup(
             "is_swap": is_swap
         })
 
-    # 6. Derive Swaps (cards) directly from table swaps to ensure 100% synchronization!
+    # 6. Derive Swaps (cards) directly from table swaps
+    # NEVER propose a player who is on BYE to be swapped into starting lineup!
     swaps = []
     for r in comparison_rows:
         if r["is_swap"] and r["gain"] > 0:
-            swaps.append({
-                "slot": r["slot"],
-                "player_in": r["opt_player"],
-                "player_out": r["curr_player"],
-                "gain": r["gain"]
-            })
+            opt_p = r["opt_player"]
+            if opt_p and not opt_p.get("is_bye", False):
+                swaps.append({
+                    "slot": r["slot"],
+                    "player_in": opt_p,
+                    "player_out": r["curr_player"],
+                    "gain": r["gain"]
+                })
     swaps.sort(key=lambda s: -s["gain"])
 
     # 7. Matchup Impact for Retro Backward Pass
@@ -707,6 +914,7 @@ def optimize_team_lineup(
 def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
     """
     Render sleek, unified UI in English for the Team Optimizer tab in Marimo.
+    Displays clear BYE badges on players whose teams have a bye week.
     """
     if not res:
         return mo.md("> ⚠️ **No data available.** Please select a valid team.")
@@ -777,6 +985,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             giveaway = ts["giveaway"]
             target = ts["target"]
             gain_val = ts["net_impact"]
+            g_bye = get_bye_badge(giveaway.get("is_bye", False))
+            t_bye = get_bye_badge(target.get("is_bye", False))
 
             card = f"""
             <div style="background:#ffffff; border:1px solid #fed7aa; border-radius:10px; padding:12px 16px; margin-top:10px; box-shadow:0 1px 3px rgba(0,0,0,0.02); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
@@ -785,7 +995,12 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
                     <img src="{giveaway.get('headshot_url', '')}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0;" />
                     <div>
                         <div style="font-weight:700; font-size:0.88rem; color:#0f172a;">{giveaway.get('player_name')}</div>
-                        <div style="font-size:0.72rem; color:#64748b;">{giveaway.get('nfl_team')} • {giveaway.get('position')} (Surplus) • <strong style="color:#0f172a;">{float(giveaway.get('score') or 0):.2f} {score_unit}</strong></div>
+                        <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                            <span>{giveaway.get('nfl_team')} • {giveaway.get('position')} (Surplus)</span>
+                            {f'{g_bye}' if g_bye else ''}
+                            <span>•</span>
+                            <strong style="color:#0f172a;">{float(giveaway.get('score') or 0):.2f} {score_unit}</strong>
+                        </div>
                     </div>
                 </div>
 
@@ -796,7 +1011,12 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
                     <img src="{target.get('headshot_url', '')}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0;" />
                     <div>
                         <div style="font-weight:700; font-size:0.88rem; color:#0f172a;">{target.get('player_name')}</div>
-                        <div style="font-size:0.72rem; color:#64748b;">{target.get('nfl_team')} • {target.get('position')} (Free Agent) • <strong style="color:#15803d;">{float(target.get('score') or 0):.2f} {score_unit}</strong></div>
+                        <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                            <span>{target.get('nfl_team')} • {target.get('position')} (Free Agent)</span>
+                            {f'{t_bye}' if t_bye else ''}
+                            <span>•</span>
+                            <strong style="color:#15803d;">{float(target.get('score') or 0):.2f} {score_unit}</strong>
+                        </div>
                     </div>
                 </div>
 
@@ -809,7 +1029,7 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
 
         shortage_pos_names = ", ".join([s["position"] for s in shortages])
         shortage_alert_html = f"""
-        <div style="background:#fff7ed; border:1px solid #fdba74; border-radius:12px; padding:16px 18px; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="background:#fff7ed; border:1px solid #fdba74; border-radius:12px; padding:16px 18px; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\">
             <div style="display:flex; align-items:flex-start; gap:12px;">
                 <span style="font-size:1.6rem; line-height:1;">🚨</span>
                 <div style="flex:1;">
@@ -920,6 +1140,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             p_out = s["player_out"]
             gain_val = s["gain"]
             slot_badge_html = get_slot_badge(s["slot"])
+            p_in_bye = get_bye_badge(p_in.get("is_bye", False))
+            p_out_bye = get_bye_badge(p_out.get("is_bye", False))
 
             card = f"""
             <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; background:#ffffff; border:1px solid #fed7aa; border-radius:10px; padding:10px 16px; margin-bottom:8px; box-shadow:0 1px 2px rgba(0,0,0,0.02);">
@@ -930,7 +1152,12 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
                         <img src="{p_in.get('headshot_url', '')}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0;" />
                         <div>
                             <div style="font-weight:700; font-size:0.86rem; color:#0f172a;">{p_in.get('player_name')}</div>
-                            <div style="font-size:0.72rem; color:#64748b;">{p_in.get('nfl_team')} • {p_in.get('position')} • <strong style="color:#0f172a;">{float(p_in.get('score') or 0):.2f} {score_unit}</strong></div>
+                            <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                                <span>{p_in.get('nfl_team')} • {p_in.get('position')}</span>
+                                {f'{p_in_bye}' if p_in_bye else ''}
+                                <span>•</span>
+                                <strong style="color:#0f172a;">{float(p_in.get('score') or 0):.2f} {score_unit}</strong>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -942,7 +1169,12 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
                     <img src="{p_out.get('headshot_url', '')}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1px solid #e2e8f0;" />
                     <div>
                         <div style="font-weight:700; font-size:0.86rem; color:#0f172a;">{p_out.get('player_name')}</div>
-                        <div style="font-size:0.72rem; color:#64748b;">{p_out.get('nfl_team')} • {p_out.get('position')} • <span style="color:#64748b;">{float(p_out.get('score') or 0):.2f} {score_unit}</span></div>
+                        <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                            <span>{p_out.get('nfl_team')} • {p_out.get('position')}</span>
+                            {f'{p_out_bye}' if p_out_bye else ''}
+                            <span>•</span>
+                            <span style="color:#64748b;">{float(p_out.get('score') or 0):.2f} {score_unit}</span>
+                        </div>
                     </div>
                 </div>
                 <div style="{'background:#f0fdf4; border:1px solid #bbf7d0; color:#16a34a;' if gain_val > 0 else ('background:#fef2f2; border:1px solid #fecaca; color:#dc2626;' if gain_val < 0 else 'background:#f8fafc; border:1px solid #e2e8f0; color:#64748b;')} font-weight:800; font-size:0.82rem; padding:4px 10px; border-radius:8px; margin-left:auto; white-space:nowrap;">
@@ -991,11 +1223,13 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             c_team_pos = f"{c_p.get('nfl_team', '')} • {c_p.get('position', '')}"
             c_img = c_p.get("headshot_url", "")
             c_status = get_status_dot(c_p.get("injury_status", "Healthy"))
+            c_bye = get_bye_badge(c_p.get("is_bye", False))
         else:
             c_name = "<em>Empty</em>"
             c_team_pos = "—"
             c_img = ""
             c_status = ""
+            c_bye = ""
 
         # Optimal player cell
         if o_p:
@@ -1003,11 +1237,13 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             o_team_pos = f"{o_p.get('nfl_team', '')} • {o_p.get('position', '')}"
             o_img = o_p.get("headshot_url", "")
             o_status = get_status_dot(o_p.get("injury_status", "Healthy"))
+            o_bye = get_bye_badge(o_p.get("is_bye", False))
         else:
             o_name = "<em>No Option</em>"
             o_team_pos = "—"
             o_img = ""
             o_status = ""
+            o_bye = ""
 
         if is_swap:
             if gain > 0:
@@ -1033,7 +1269,11 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             </td>
             <td style="padding:10px 8px; text-align:left;">
                 <div style="font-weight:700; font-size:0.86rem; color:#0f172a;">{c_name}</div>
-                <div style="font-size:0.72rem; color:#64748b;">{c_team_pos} &nbsp;{c_status}</div>
+                <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                    <span>{c_team_pos}</span>
+                    {f'{c_bye}' if c_bye else ''}
+                    {c_status}
+                </div>
             </td>
             <td style="padding:10px 10px; text-align:right; font-weight:600; font-size:0.88rem; color:#475569; width:80px;">
                 {c_score:.2f}
@@ -1044,7 +1284,11 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             </td>
             <td style="padding:10px 8px; text-align:left;">
                 <div style="font-weight:700; font-size:0.86rem; color:{'#15803d' if is_swap else '#0f172a'};">{o_name}</div>
-                <div style="font-size:0.72rem; color:#64748b;">{o_team_pos} &nbsp;{o_status}</div>
+                <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                    <span>{o_team_pos}</span>
+                    {f'{o_bye}' if o_bye else ''}
+                    {o_status}
+                </div>
             </td>
             <td style="padding:10px 10px; text-align:right; font-weight:700; font-size:0.9rem; color:#0f172a; width:80px;">
                 {o_score:.2f}
@@ -1089,7 +1333,7 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
     </div>
     """
 
-    # Bench Table (remaining optimal bench players) with matching chair emoji 🪑 and aligned headers
+    # Bench Table (remaining optimal bench players)
     bench_rows = []
     for b in optimal_bench:
         b_name = b.get("player_name", "Unknown")
@@ -1098,6 +1342,7 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
         b_score = float(b.get("score") or 0.0)
         b_img = b.get("headshot_url", "")
         b_status = get_status_dot(b.get("injury_status", "Healthy"))
+        b_bye = get_bye_badge(b.get("is_bye", False))
         b_slot = get_slot_badge("BN")
 
         brow = f"""
@@ -1108,9 +1353,16 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             </td>
             <td style="padding:8px 8px; text-align:left;">
                 <div style="font-weight:700; font-size:0.85rem; color:#0f172a;">{b_name}</div>
-                <div style="font-size:0.72rem; color:#64748b;">{b_team} • {b_pos}</div>
+                <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+                    <span>{b_team} • {b_pos}</span>
+                    {f'{b_bye}' if b_bye else ''}
+                </div>
             </td>
-            <td style="padding:8px 10px; text-align:center; width:120px;">{b_status}</td>
+            <td style="padding:8px 10px; text-align:center; width:120px;">
+                <div style="display:inline-flex; align-items:center; justify-content:center; gap:5px;">
+                    {f'{b_bye} ' if b_bye else ''}{b_status}
+                </div>
+            </td>
             <td style="padding:8px 16px; text-align:right; font-weight:700; font-size:0.88rem; color:#334155; width:140px;">
                 {b_score:.2f}
             </td>
@@ -1149,4 +1401,4 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
         mo.Html(swap_feed_html),
         mo.Html(table_html),
         mo.Html(bench_html)
-    ], gap=1)
+    ], gap=0)

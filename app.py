@@ -225,7 +225,7 @@ def _(get_current_nfl_week, mo):
 
     opt_injury_switch = mo.ui.switch(
         value=True,
-        label="🛡️ Bench Inactive Players (Out / IR / Doubtful)"
+        label="🛡️ Bench Inactive & BYE Players (Out / IR / Doubtful / BYE)"
     )
     return opt_injury_switch, opt_mode_switch, opt_week_dropdown
 
