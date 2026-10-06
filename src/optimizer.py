@@ -218,9 +218,9 @@ def get_bye_badge(is_bye: bool) -> str:
         return ""
     return (
         '<span style="display:inline-flex; align-items:center; '
-        'background:#fef3c7; border:1px solid #fde68a; color:#b45309; '
+        'background:#7c3aed; color:#ffffff; '
         'font-weight:800; font-size:0.68rem; padding:1px 6px; border-radius:4px; '
-        'letter-spacing:0.4px; vertical-align:middle;">BYE</span>'
+        'letter-spacing:0.5px; vertical-align:middle; box-shadow:0 1px 2px rgba(124,58,237,0.25);">BYE</span>'
     )
 
 
@@ -1412,9 +1412,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             </td>
             <td style="padding:8px 8px; text-align:left;">
                 <div style="font-weight:700; font-size:0.85rem; color:#0f172a;">{b_name}</div>
-                <div style="font-size:0.72rem; color:#64748b; display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
-                    <span>{b_team} • {b_pos}</span>
-                    {f'{b_bye}' if b_bye else ''}
+                <div style="font-size:0.72rem; color:#64748b; margin-top:2px;">
+                    {b_team} • {b_pos}
                 </div>
             </td>
             <td style="padding:8px 10px; text-align:center; width:120px;">
