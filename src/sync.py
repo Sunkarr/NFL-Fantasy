@@ -139,6 +139,27 @@ def sync_league_and_rosters(league_id: str = DEFAULT_LEAGUE_ID, db_path: Path = 
             is_res = 1 if pid in reserve else 0
             roster_rows.append((league_id, rid, pid, is_st, is_res, now))
 
+    # For active week, overlay the latest week-specific starters from matchups endpoint
+    try:
+        m_res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/matchups/{current_week}", timeout=8)
+        if m_res.status_code == 200:
+            m_data = m_res.json()
+            wk_starters = {}
+            for m in m_data:
+                rid = m.get("roster_id")
+                st = set(str(p) for p in (m.get("starters") or []))
+                if rid is not None and st:
+                    wk_starters[rid] = st
+            if wk_starters:
+                updated_roster_rows = []
+                for (lid, rid, pid, is_st, is_res, upd) in roster_rows:
+                    if rid in wk_starters:
+                        is_st = 1 if pid in wk_starters[rid] else 0
+                    updated_roster_rows.append((lid, rid, pid, is_st, is_res, upd))
+                roster_rows = updated_roster_rows
+    except Exception as e:
+        print(f"[Sync Note] Could not overlay week {current_week} starters: {e}")
+
     cur.executemany('''
         INSERT OR REPLACE INTO teams 
         (roster_id, league_id, owner_id, team_name, owner_name, wins, losses, fpts, fpts_against, updated_at)

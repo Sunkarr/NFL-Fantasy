@@ -270,6 +270,56 @@ def calculate_projected_points(player_stats: Dict[str, Any], scoring_settings: D
     return round(total, 2)
 
 
+def get_week_matchup_starters(
+    league_id: str = DEFAULT_LEAGUE_ID,
+    week: int = 1,
+    db_path: Path = DB_PATH
+) -> Dict[int, List[str]]:
+    """
+    Retrieve week-specific starters for each roster from Sleeper matchups/{week}.
+    Uses a 2-minute TTL for current/upcoming weeks to reflect real-time lineup changes
+    made in Sleeper, and 1-hour TTL for past weeks.
+    """
+    cache_dir = db_path.parent
+    cache_file = cache_dir / f"matchups_week_{week}.json"
+
+    data = None
+    curr_wk = get_current_nfl_week()
+    ttl = 120 if week >= curr_wk else 3600
+
+    if cache_file.exists():
+        try:
+            mtime = cache_file.stat().st_mtime
+            if (time.time() - mtime) < ttl:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+        except Exception:
+            pass
+
+    if (data is None or not isinstance(data, list)) and league_id:
+        try:
+            res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/matchups/{week}", timeout=6)
+            if res.status_code == 200:
+                data = res.json()
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+        except Exception as e:
+            print(f"[Optimizer] Failed to fetch matchups week {week} starters: {e}")
+            return {}
+
+    if not data or not isinstance(data, list):
+        return {}
+
+    starters_map: Dict[int, List[str]] = {}
+    for item in data:
+        rid = item.get("roster_id")
+        st = item.get("starters") or []
+        if rid is not None:
+            starters_map[int(rid)] = [str(p) for p in st if p]
+
+    return starters_map
+
+
 def get_matchup_pairings(
     league_id: str = DEFAULT_LEAGUE_ID,
     week: int = 1,
@@ -494,7 +544,16 @@ def optimize_team_lineup(
         if roster_df.empty:
             return {}
 
-        roster_df["is_curr_starter"] = roster_df["is_starter"].fillna(0).astype(int)
+        # Retrieve live week-specific starters from matchups/{selected_week}
+        week_starters_map = get_week_matchup_starters(league_id=league_id, week=selected_week, db_path=db_path)
+        week_starters = set(week_starters_map.get(roster_id, []))
+
+        if week_starters:
+            roster_df["is_curr_starter"] = roster_df["player_id"].astype(str).apply(
+                lambda pid: 1 if pid in week_starters else 0
+            )
+        else:
+            roster_df["is_curr_starter"] = roster_df["is_starter"].fillna(0).astype(int)
 
         if mode == "projection":
             scoring_settings = get_league_scoring_settings(db_path=db_path, league_id=league_id)
