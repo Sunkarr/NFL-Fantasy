@@ -68,7 +68,10 @@ def get_team_roster_analytics(
     df_rosters: pd.DataFrame,
     df_player_stats: pd.DataFrame,
     df_teams: pd.DataFrame,
-    val_df: Optional[pd.DataFrame] = None
+    val_df: Optional[pd.DataFrame] = None,
+    week: Optional[int] = None,
+    season: Optional[str] = None,
+    db_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Compute dedicated team-level metrics:
@@ -153,6 +156,16 @@ def get_team_roster_analytics(
         df.loc[df['slot'].isin(['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF']), 'is_starter'] = 1
         df.loc[df['slot'] == 'BN', 'is_starter'] = 0
 
+        # Determine bye teams for the target week
+        try:
+            from src.optimizer import get_current_nfl_week, get_nfl_bye_teams, is_player_on_bye
+            from src.config import DB_PATH, CURRENT_SEASON
+            target_week = week if week is not None else get_current_nfl_week()
+            target_season = season if season is not None else CURRENT_SEASON
+            bye_teams = get_nfl_bye_teams(season=target_season, week=target_week, db_path=db_path or DB_PATH)
+        except Exception:
+            bye_teams = set()
+
         # Assign IR slot to reserve / IR players on bench
         is_ir = (
             (df['is_reserve'] == 1) |
@@ -161,14 +174,23 @@ def get_team_roster_analytics(
         )
         df.loc[(df['is_starter'] == 0) & is_ir, 'slot'] = 'IR'
 
+        # Assign BYE slot to bench players whose NFL team is on BYE
+        if bye_teams:
+            is_bye = (df['is_starter'] == 0) & (df['slot'] != 'IR') & (
+                df.apply(lambda r: is_player_on_bye(r.get('nfl_team'), r.get('position'), r.get('player_id'), bye_teams), axis=1)
+            )
+            df.loc[is_bye, 'slot'] = 'BYE'
+
         return df
 
     merged = assign_slots(merged)
 
-    # Sort order: Starters first, then BN, and IR at the very bottom
-    slot_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'FLEX': 5, 'K': 6, 'DEF': 7, 'BN': 8, 'IR': 9}
+    # Sort order: Starters first, then active bench (BN & BYE by position / mean_points), and IR at the very bottom
+    slot_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'FLEX': 5, 'K': 6, 'DEF': 7, 'BN': 8, 'BYE': 8, 'IR': 9}
+    pos_order = {'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'DEF': 6}
     merged['slot_order'] = merged['slot'].map(lambda s: slot_order.get(s, 99))
-    merged = merged.sort_values(by=['slot_order', 'mean_points'], ascending=[True, False]).reset_index(drop=True)
+    merged['pos_order'] = merged['position'].map(lambda p: pos_order.get(p, 99))
+    merged = merged.sort_values(by=['slot_order', 'pos_order', 'mean_points'], ascending=[True, True, False]).reset_index(drop=True)
 
     starters_df = merged[merged['is_starter'] == 1].reset_index(drop=True)
     bench_df = merged[merged['is_starter'] == 0].reset_index(drop=True)

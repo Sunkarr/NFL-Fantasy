@@ -550,7 +550,8 @@ def _(
             _view = mo.md("Please select a team.")
         else:
             _selected_team = team_dropdown.value
-            _t = get_team_roster_analytics(_selected_team, df_current_rosters, df_player_stats, df_teams, val_df=val_df_calc)
+            _active_wk = opt_week_dropdown.value if (opt_week_dropdown and opt_week_dropdown.value) else None
+            _t = get_team_roster_analytics(_selected_team, df_current_rosters, df_player_stats, df_teams, val_df=val_df_calc, week=_active_wk)
 
             if not _t:
                 _view = mo.md(f"No roster data available for {_selected_team}.")
@@ -572,11 +573,17 @@ def _(
                         f"""<div style="display:flex; align-items:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:4px 10px;"><span style="font-weight:700; font-size:0.75rem; color:{_p_col};">{_p}</span><span style="font-weight:600; font-size:0.82rem; color:#1e293b;">{_val:.1f} <span style="font-size:0.7rem; color:#94a3b8; font-weight:normal;">PPG</span></span></div>"""
                     )
 
-                _bench_count_desc = (
-                    f"{_t.get('bn_count', len(_t['bench_df']))} BN + {_t.get('ir_count', 0)} IR"
-                    if _t.get('ir_count', 0) > 0
-                    else f"{len(_t['bench_df'])} Bench Options"
-                )
+                _ir_cnt = int((_t['bench_df']['slot'] == 'IR').sum()) if 'slot' in _t['bench_df'].columns else 0
+                _bye_cnt = int((_t['bench_df']['slot'] == 'BYE').sum()) if 'slot' in _t['bench_df'].columns else 0
+                _pure_bn = len(_t['bench_df']) - _ir_cnt - _bye_cnt
+                _b_parts = []
+                if _pure_bn > 0:
+                    _b_parts.append(f"{_pure_bn} BN")
+                if _bye_cnt > 0:
+                    _b_parts.append(f"{_bye_cnt} BYE")
+                if _ir_cnt > 0:
+                    _b_parts.append(f"{_ir_cnt} IR")
+                _bench_count_desc = " + ".join(_b_parts) if _b_parts else f"{len(_t['bench_df'])} Bench Options"
 
                 _kpi_box = mo.Html(
                     f"""<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:18px 22px; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,0.03); font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:16px; padding-bottom:16px; border-bottom:1px solid #f1f5f9;"><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Team Record</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['wins']} - {_t['losses']}</div><div style="font-size:0.74rem; color:#94a3b8;">Total: {_t['total_fpts']:.1f} FPTS</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Starting PPG</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['starter_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.74rem; color:#94a3b8;">Avg Starter Output / Wk</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Bench Depth</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['bench_ppg']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">FPTS</span></div><div style="font-size:0.74rem; color:#94a3b8;">{_bench_count_desc}</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Roster TV</div><div style="font-size:1.45rem; font-weight:800; color:#7c3aed; margin:2px 0;">{_t['total_roster_tv']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">TV</span></div><div style="font-size:0.74rem; color:#94a3b8;">Starters: {_t['starter_tv']:.1f} • Bench: {_t['bench_tv']:.1f}</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Avg Pos Rank</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">#{_t['avg_pos_rank_starters']:.1f} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Starters</span></div><div style="font-size:0.74rem; color:#94a3b8;">Bench: #{_t['avg_pos_rank_bench']:.1f} • All: #{_t['avg_pos_rank_total']:.1f}</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">⭐ Top 10 Assets</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{_t['top_10_count']} <span style="font-size:0.85rem; font-weight:600; color:#64748b;">Players</span></div><div style="font-size:0.74rem; color:#94a3b8;">Top-10 at their position</div></div><div><div style="font-size:0.76rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px;">Roster Health</div><div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin:2px 0;">{len(_t['all_roster_df']) - _t['injured_count']} <span style="font-size:0.95rem; font-weight:500; color:#94a3b8;">/ {len(_t['all_roster_df'])}</span></div><div style="font-size:0.74rem; color:#16a34a; font-weight:500;">{_t['injured_count']} Questionable / Out</div></div></div><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px;"><div style="font-size:0.74rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-right:4px;">Starter Breakdown:</div>{''.join(_pos_pills)}</div></div>"""
@@ -621,13 +628,16 @@ def _(
                             'FLEX': 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #f59e0b 100%)',
                             'K': '#a855f7',
                             'DEF': '#64748b',
-                            'BN': '#94a3b8',
+                            'BN': '#64748b',
+                            'BYE': '#7c3aed',
                             'IR': '#ef4444'
                         }
                         if is_starters:
                             _slot_bg = _pos_slot_colors.get(_slot_label, _pos_slot_colors.get(_r.get('position', ''), '#2563eb'))
                         elif _slot_label == 'IR':
                             _slot_bg = '#ef4444'
+                        elif _slot_label == 'BYE':
+                            _slot_bg = '#7c3aed'
                         else:
                             _slot_bg = '#64748b'
 
@@ -637,9 +647,17 @@ def _(
                         _rows.append(_row_html)
 
                     _ir_cnt = int((df_sub['slot'] == 'IR').sum()) if 'slot' in df_sub.columns else 0
-                    if not is_starters and _ir_cnt > 0:
-                        _bn_cnt = len(df_sub) - _ir_cnt
-                        _count_str = f"{len(df_sub)} Players ({_bn_cnt} BN + {_ir_cnt} IR)"
+                    _bye_cnt = int((df_sub['slot'] == 'BYE').sum()) if 'slot' in df_sub.columns else 0
+                    if not is_starters and (_ir_cnt > 0 or _bye_cnt > 0):
+                        _pure_bn = len(df_sub) - _ir_cnt - _bye_cnt
+                        _c_parts = []
+                        if _pure_bn > 0:
+                            _c_parts.append(f"{_pure_bn} BN")
+                        if _bye_cnt > 0:
+                            _c_parts.append(f"{_bye_cnt} BYE")
+                        if _ir_cnt > 0:
+                            _c_parts.append(f"{_ir_cnt} IR")
+                        _count_str = f"{len(df_sub)} Players ({' + '.join(_c_parts)})"
                     else:
                         _count_str = f"{len(df_sub)} Players"
 

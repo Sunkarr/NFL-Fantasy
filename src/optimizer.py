@@ -724,11 +724,30 @@ def optimize_team_lineup(
             healthy_at_pos = eligible_pool[eligible_pool["position"] == pos]
             if len(healthy_at_pos) < req_cnt:
                 missing_cnt = req_cnt - len(healthy_at_pos)
+
+                # Check cause of shortage at this position (BYE vs Injury vs Empty)
+                pos_players = roster_df[roster_df["position"] == pos]
+                has_bye = any(pos_players["is_bye"])
+                has_injury = any(
+                    pos_players["injury_status"].isin(severe_injuries) |
+                    ((pos_players["is_reserve"] == 1) if "is_reserve" in pos_players.columns else False)
+                )
+
+                if len(pos_players) == 0:
+                    reason = "missing"
+                elif has_bye and not has_injury:
+                    reason = "bye"
+                elif has_injury and not has_bye:
+                    reason = "injury"
+                else:
+                    reason = "mixed"
+
                 shortages.append({
                     "position": pos,
                     "required": req_cnt,
                     "healthy_count": len(healthy_at_pos),
-                    "missing": missing_cnt
+                    "missing": missing_cnt,
+                    "reason": reason
                 })
 
         # Generate intelligent trade / waiver suggestion if shortages detected
@@ -1116,14 +1135,29 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             cards.append(card)
 
         shortage_pos_names = ", ".join([s["position"] for s in shortages])
+        reasons = {s.get("reason", "injury") for s in shortages}
+
+        if reasons == {"bye"}:
+            alert_title = f"Roster Shortage Alert: {shortage_pos_names} on BYE Week!"
+            alert_desc = f"Your roster has no active starters at <strong>{shortage_pos_names}</strong> due to BYE weeks. To field a valid starting lineup, trade or pick up an available player from waivers:"
+        elif reasons == {"injury"}:
+            alert_title = f"Roster Shortage Alert: No Healthy {shortage_pos_names} Available!"
+            alert_desc = f"Your roster lacks healthy starters at <strong>{shortage_pos_names}</strong> due to injuries. To field a valid starting lineup, trade or pick up an available player from waivers:"
+        elif reasons == {"missing"}:
+            alert_title = f"Roster Shortage Alert: No {shortage_pos_names} on Roster!"
+            alert_desc = f"Your roster has no players at <strong>{shortage_pos_names}</strong>. To field a valid starting lineup, trade or pick up an available player from waivers:"
+        else:
+            alert_title = f"Roster Shortage Alert: No Active {shortage_pos_names} Available (BYE / Injured)!"
+            alert_desc = f"Your roster lacks active starters at <strong>{shortage_pos_names}</strong> this week due to injuries and BYE weeks. To field a valid starting lineup, trade or pick up an available player from waivers:"
+
         shortage_alert_html = f"""
-        <div style="background:#fff7ed; border:1px solid #fdba74; border-radius:12px; padding:16px 18px; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\">
+        <div style="background:#fff7ed; border:1px solid #fdba74; border-radius:12px; padding:16px 18px; margin-bottom:18px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
             <div style="display:flex; align-items:flex-start; gap:12px;">
                 <span style="font-size:1.6rem; line-height:1;">🚨</span>
                 <div style="flex:1;">
-                    <div style="font-weight:800; font-size:0.96rem; color:#9a3412;">Roster Shortage Alert: No Healthy {shortage_pos_names} Available!</div>
+                    <div style="font-weight:800; font-size:0.96rem; color:#9a3412;">{alert_title}</div>
                     <div style="font-size:0.82rem; color:#c2410c; margin-top:3px;">
-                        Your roster lacks healthy starters at <strong>{shortage_pos_names}</strong>. To field a valid starting lineup, trade or pick up an available player from waivers:
+                        {alert_desc}
                     </div>
                     {''.join(cards)}
                 </div>
@@ -1457,11 +1491,19 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
         """
         bench_rows.append(brow)
 
-    # Calculate Bench vs IR count badge identical to Team Analytics
+    # Calculate Bench vs IR vs BYE count badge identical to Team Analytics
     ir_cnt = sum(1 for b in optimal_bench if b.get("slot") == "IR")
+    bye_cnt = sum(1 for b in optimal_bench if b.get("slot") == "BYE")
+    bn_cnt = len(optimal_bench) - ir_cnt - bye_cnt
+    parts = []
+    if bn_cnt > 0:
+        parts.append(f"{bn_cnt} BN")
+    if bye_cnt > 0:
+        parts.append(f"{bye_cnt} BYE")
     if ir_cnt > 0:
-        bn_cnt = len(optimal_bench) - ir_cnt
-        bench_count_badge = f"{len(optimal_bench)} Players ({bn_cnt} BN + {ir_cnt} IR)"
+        parts.append(f"{ir_cnt} IR")
+    if parts:
+        bench_count_badge = f"{len(optimal_bench)} Players ({" + ".join(parts)})"
     else:
         bench_count_badge = f"{len(optimal_bench)} Players"
 
