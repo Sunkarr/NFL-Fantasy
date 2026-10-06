@@ -1503,7 +1503,8 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
     if ir_cnt > 0:
         parts.append(f"{ir_cnt} IR")
     if parts:
-        bench_count_badge = f"{len(optimal_bench)} Players ({" + ".join(parts)})"
+        joined_parts = " + ".join(parts)
+        bench_count_badge = f"{len(optimal_bench)} Players ({joined_parts})"
     else:
         bench_count_badge = f"{len(optimal_bench)} Players"
 

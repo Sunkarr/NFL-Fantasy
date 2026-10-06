@@ -475,9 +475,9 @@ def _(
     )
 
     if nav_tabs.value == "📊 Position Scatter":
-        _pos_code = pos_select.value if pos_select else "QB"
-        _min_pts = min_pts_slider.value if min_pts_slider else 3
-        _top_limit = limit_slider.value if limit_slider else 20
+        _pos_code = pos_select.value if pos_select is not None else "QB"
+        _min_pts = min_pts_slider.value if min_pts_slider is not None else 3
+        _top_limit = limit_slider.value if limit_slider is not None else 20
 
         _filtered_pos = df_player_stats[
             (df_player_stats['position'] == _pos_code) &
@@ -550,7 +550,7 @@ def _(
             _view = mo.md("Please select a team.")
         else:
             _selected_team = team_dropdown.value
-            _active_wk = opt_week_dropdown.value if (opt_week_dropdown and opt_week_dropdown.value) else None
+            _active_wk = opt_week_dropdown.value if (opt_week_dropdown is not None and opt_week_dropdown.value is not None) else None
             _t = get_team_roster_analytics(_selected_team, df_current_rosters, df_player_stats, df_teams, val_df=val_df_calc, week=_active_wk)
 
             if not _t:
@@ -657,7 +657,8 @@ def _(
                             _c_parts.append(f"{_bye_cnt} BYE")
                         if _ir_cnt > 0:
                             _c_parts.append(f"{_ir_cnt} IR")
-                        _count_str = f"{len(df_sub)} Players ({' + '.join(_c_parts)})"
+                        _joined_c_parts = " + ".join(_c_parts)
+                        _count_str = f"{len(df_sub)} Players ({_joined_c_parts})"
                     else:
                         _count_str = f"{len(df_sub)} Players"
 
@@ -679,16 +680,16 @@ def _(
         else:
             _selected_team = team_dropdown.value
             _active_wk = get_current_nfl_week()
-            _target_wk = opt_week_dropdown.value if (opt_week_dropdown and opt_week_dropdown.value) else _active_wk
+            _target_wk = opt_week_dropdown.value if (opt_week_dropdown is not None and opt_week_dropdown.value is not None) else _active_wk
 
-            if opt_mode_switch and opt_mode_switch.value:
+            if opt_mode_switch is not None and opt_mode_switch.value:
                 _mode = "ppg"
             elif _target_wk < _active_wk:
                 _mode = "retro"
             else:
                 _mode = "projection"
 
-            _ignore_inj = opt_injury_switch.value if opt_injury_switch else True
+            _ignore_inj = opt_injury_switch.value if opt_injury_switch is not None else True
 
             _opt_res = optimize_team_lineup(
                 team_name=_selected_team,
