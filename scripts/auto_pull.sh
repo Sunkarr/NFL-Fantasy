@@ -1,20 +1,39 @@
 #!/bin/bash
 set -e
 
-REPO_DIR="/home/azureuser/NFL-Fantasy"
+# Prevent parallel executions (race condition) using a non-blocking flock
+LOCK_FILE="/tmp/git-autodeploy.lock"
+exec 200>"$LOCK_FILE"
+flock -n 200 || exit 0
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_FILE="/home/azureuser/git-autodeploy.log"
+
+# Fallback log destination if /home/azureuser is not writable
+if [ ! -w "$(dirname "$LOG_FILE")" ] 2>/dev/null; then
+    LOG_FILE="$REPO_DIR/data/git-autodeploy.log"
+fi
 
 cd "$REPO_DIR"
 
-# Fetch remote changes silently
-git fetch origin main > /dev/null 2>&1
+# Silently fetch latest remote changes
+git fetch origin main > /dev/null 2>&1 || true
 
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
+REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "")
 
-if [ "$LOCAL" != "$REMOTE" ]; then
+if [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
     echo "[$(date)] 🚀 New commit detected! Updating from $LOCAL to $REMOTE..." >> "$LOG_FILE"
-    git pull origin main >> "$LOG_FILE" 2>&1
-    sudo docker compose up -d --remove-orphans >> "$LOG_FILE" 2>&1
+
+    # Robust hard sync to origin/main:
+    # Completely prevents divergent branches, dirty file conflicts, or failed fast-forwards
+    git reset --hard origin/main >> "$LOG_FILE" 2>&1
+
+    # Reload Docker Compose containers with the updated codebase
+    if command -v docker >/dev/null 2>&1; then
+        sudo docker compose up -d --remove-orphans >> "$LOG_FILE" 2>&1
+    fi
+
     echo "[$(date)] ✅ Code updated and compose services deployed." >> "$LOG_FILE"
 fi
