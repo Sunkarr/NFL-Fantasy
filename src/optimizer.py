@@ -899,7 +899,7 @@ def optimize_team_lineup(
             inj_st in ["IR", "PUP"] or
             p_st in ["Injured Reserve", "Physically Unable to Perform"]
         )
-        d["slot"] = "IR" if is_ir else "BN"
+        d["slot"] = "IR" if is_ir else ("BYE" if d.get("is_bye", False) else "BN")
         optimal_bench.append(d)
 
     # Sort bench identically to Team Analytics:
@@ -1034,6 +1034,7 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             "K": '<span style="display:inline-block; width:44px; text-align:center; background:#a855f7; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">K</span>',
             "DEF": '<span style="display:inline-block; width:44px; text-align:center; background:#64748b; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">DEF</span>',
             "BN": '<span style="display:inline-block; width:44px; text-align:center; background:#64748b; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">BN</span>',
+            "BYE": '<span style="display:inline-block; width:44px; text-align:center; background:#7c3aed; color:#ffffff; font-weight:800; font-size:0.72rem; padding:3px 0; border-radius:6px; letter-spacing:0.5px; box-shadow:0 1px 2px rgba(124,58,237,0.25);">BYE</span>',
             "IR": '<span style="display:inline-block; width:44px; text-align:center; background:#ef4444; color:#ffffff; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">IR</span>'
         }
         return badges.get(slot_name, f'<span style="display:inline-block; width:44px; text-align:center; background:#cbd5e1; color:#334155; font-weight:700; font-size:0.72rem; padding:3px 0; border-radius:6px;">{slot_name}</span>')
@@ -1446,7 +1447,7 @@ def render_optimizer_view(res: Dict[str, Any], mo) -> Any:
             </td>
             <td style="padding:8px 10px; text-align:center; width:120px;">
                 <div style="display:inline-flex; align-items:center; justify-content:center; gap:5px;">
-                    {f'{b_bye} ' if b_bye else ''}{b_status}
+                    {b_status}
                 </div>
             </td>
             <td style="padding:8px 16px; text-align:right; font-weight:700; font-size:0.88rem; color:#334155; width:140px;">
