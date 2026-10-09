@@ -498,17 +498,17 @@ def _(
         _view = mo.vstack([_content, _fixed_corner_badge], gap=1)
 
     elif nav_tabs.value == "🤝 Trade Finder":
-        _focus_t = None if (not trade_focus_dropdown or trade_focus_dropdown.value == "All Teams") else trade_focus_dropdown.value
+        _focus_t = None if (trade_focus_dropdown is None or trade_focus_dropdown.value == "All Teams") else trade_focus_dropdown.value
         _analysis = analyze_team_needs_and_surplus(df_teams, df_current_rosters, df_player_stats)
         _recs = generate_trade_recommendations(df_teams, df_current_rosters, df_player_stats, focus_team=_focus_t)
 
         _calc_res = None
         if (
-            trade_team_a_dropdown
-            and trade_team_b_dropdown
-            and trade_pids_a_select
-            and trade_pids_b_select
-            and (trade_pids_a_select.value or trade_pids_b_select.value)
+            trade_team_a_dropdown is not None
+            and trade_team_b_dropdown is not None
+            and trade_pids_a_select is not None
+            and trade_pids_b_select is not None
+            and (bool(trade_pids_a_select.value) or bool(trade_pids_b_select.value))
         ):
             _calc_res = simulate_custom_trade(
                 team_a_name=trade_team_a_dropdown.value,
@@ -538,9 +538,9 @@ def _(
             val_df=val_df_calc,
             unique_teams=unique_teams,
             owner_colors=owner_colors,
-            pos_filter=market_pos_dropdown.value if market_pos_dropdown else "ALL",
-            team_filter=market_team_dropdown.value if market_team_dropdown else "ALL",
-            search_query=market_search_input.value if market_search_input else "",
+            pos_filter=market_pos_dropdown.value if market_pos_dropdown is not None else "ALL",
+            team_filter=market_team_dropdown.value if market_team_dropdown is not None else "ALL",
+            search_query=market_search_input.value if market_search_input is not None else "",
             mo=mo
         )
         _view = mo.vstack([_market_view, _fixed_corner_badge], gap=1)
@@ -593,7 +593,7 @@ def _(
                 def _build_roster_html(df_sub, title, is_starters=True):
                     _rows = []
                     for _, _r in df_sub.iterrows():
-                        _inj = _r['injury_status']
+                        _inj = str(_r.get('injury_status', 'Healthy') or 'Healthy')
                         if _inj == 'Healthy':
                             _inj_html = "<span style='display:inline-flex; align-items:center; gap:4px; color:#16a34a; font-weight:600; font-size:0.75rem;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span>Active</span>"
                         elif _inj in ['Questionable', 'Probable']:
@@ -601,25 +601,28 @@ def _(
                         else:
                             _inj_html = f"<span style='background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; padding:2px 7px; font-weight:700; font-size:0.72rem;'>{_inj}</span>"
 
-                        _rk = _r['pos_rank']
-                        if _rk <= 5:
-                            _rank_html = f"<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; border-radius:6px; padding:2px 8px; font-weight:800; font-size:0.75rem;'>#{_rk} Elite</span>"
-                        elif _rk <= 12:
-                            _rank_html = f"<span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.75rem;'>#{_rk} Starter</span>"
-                        elif _rk < 99:
-                            _rank_html = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.75rem;'>#{_rk}</span>"
+                        _rk_val = _r.get('pos_rank')
+                        if pd.notna(_rk_val) and int(_rk_val) <= 5:
+                            _rank_html = f"<span style='background:#fef3c7; border:1px solid #fde68a; color:#b45309; border-radius:6px; padding:2px 8px; font-weight:800; font-size:0.75rem;'>#{int(_rk_val)} Elite</span>"
+                        elif pd.notna(_rk_val) and int(_rk_val) <= 12:
+                            _rank_html = f"<span style='background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.75rem;'>#{int(_rk_val)} Starter</span>"
+                        elif pd.notna(_rk_val) and int(_rk_val) < 99:
+                            _rank_html = f"<span style='background:#f8fafc; border:1px solid #e2e8f0; color:#475569; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.75rem;'>#{int(_rk_val)}</span>"
                         else:
                             _rank_html = "<span style='color:#94a3b8; font-size:0.75rem;'>—</span>"
 
-                        _tier = _r['consistency_tier']
+                        _tier_val = _r.get('consistency_tier')
+                        _tier = str(_tier_val) if pd.notna(_tier_val) and _tier_val is not None else ""
                         if "Rock Solid" in _tier:
                             _tier_html = "<span style='display:inline-flex; align-items:center; gap:4px; background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'><span style='width:6px; height:6px; border-radius:50%; background:#22c55e;'></span>Rock Solid</span>"
                         elif "Moderate" in _tier:
                             _tier_html = "<span style='display:inline-flex; align-items:center; gap:4px; background:#fefce8; border:1px solid #fef08a; color:#854d0e; border-radius:6px; padding:2px 8px; font-weight:600; font-size:0.74rem;'><span style='width:6px; height:6px; border-radius:50%; background:#eab308;'></span>Moderate</span>"
-                        else:
+                        elif "Boom" in _tier:
                             _tier_html = "<span style='display:inline-flex; align-items:center; gap:4px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:6px; padding:2px 8px; font-weight:700; font-size:0.74rem;'><span style='width:6px; height:6px; border-radius:50%; background:#ef4444;'></span>Boom / Bust</span>"
+                        else:
+                            _tier_html = "<span style='color:#94a3b8; font-size:0.75rem;'>—</span>"
 
-                        _slot_label = _r['slot']
+                        _slot_label = str(_r.get('slot', 'BN'))
                         _pos_slot_colors = {
                             'QB': '#f43f5e',
                             'RB': '#06b6d4',
@@ -641,9 +644,16 @@ def _(
                         else:
                             _slot_bg = '#64748b'
 
-                        _tv = float(_r.get('trade_value', 0.0))
+                        _tv = float(_r.get('trade_value', 0.0)) if pd.notna(_r.get('trade_value')) else 0.0
+                        _mean_pts = float(_r.get('mean_points', 0.0)) if pd.notna(_r.get('mean_points')) else 0.0
+                        _std_pts = float(_r.get('std_points', 0.0)) if pd.notna(_r.get('std_points')) else 0.0
+                        _gp = int(_r.get('games_played', 0)) if pd.notna(_r.get('games_played')) else 0
+                        _pname = str(_r.get('player_name', 'Unknown'))
+                        _pos = str(_r.get('position', 'WR'))
+                        _nfl_team = str(_r.get('nfl_team', ''))
+                        _headshot = str(_r.get('headshot_url', ''))
 
-                        _row_html = f"""<tr style='border-bottom: 1px solid #f1f5f9; height: 50px;'><td style='padding: 8px 10px; width: 65px;'><span style='background:{_slot_bg}; color:#ffffff; font-weight:700; font-size:0.75rem; border-radius:6px; padding:3px 8px; display:inline-block; text-align:center; min-width:44px;'>{_slot_label}</span></td><td style='padding: 8px 6px; width: 44px;'><img src='{_r['headshot_url']}' style='width:36px; height:36px; border-radius:50%; object-fit:cover; background:#e2e8f0; border:1px solid #cbd5e1;' onerror="this.src='https://sleepercdn.com/images/v2/icons/player_default.webp'"/></td><td style='padding: 8px 12px;'><div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_r['player_name']}</div><div style='font-size:0.74rem; color:#64748b;'>{_r['position']} • {_r['nfl_team']}</div></td><td style='padding: 8px 12px; text-align:center;'>{_rank_html}</td><td style='padding: 8px 12px; text-align:right; font-weight:800; font-size:0.88rem; color:#7c3aed;'>{_tv:.1f}</td><td style='padding: 8px 12px; text-align:right; font-weight:700; font-size:0.9rem; color:#0f172a;'>{_r['mean_points']:.2f}</td><td style='padding: 8px 12px; text-align:right; font-size:0.84rem; color:#475569;'>±{_r['std_points']:.1f}</td><td style='padding: 8px 12px; text-align:center;'>{_tier_html}</td><td style='padding: 8px 12px; text-align:center;'>{_inj_html}</td><td style='padding: 8px 12px; text-align:center; font-size:0.82rem; color:#64748b;'>{_r['games_played']}</td></tr>"""
+                        _row_html = f"""<tr style='border-bottom: 1px solid #f1f5f9; height: 50px;'><td style='padding: 8px 10px; width: 65px;'><span style='background:{_slot_bg}; color:#ffffff; font-weight:700; font-size:0.75rem; border-radius:6px; padding:3px 8px; display:inline-block; text-align:center; min-width:44px;'>{_slot_label}</span></td><td style='padding: 8px 6px; width: 44px;'><img src='{_headshot}' style='width:36px; height:36px; border-radius:50%; object-fit:cover; background:#e2e8f0; border:1px solid #cbd5e1;' onerror="this.src='https://sleepercdn.com/images/v2/icons/player_default.webp'"/></td><td style='padding: 8px 12px;'><div style='font-weight:700; font-size:0.88rem; color:#0f172a;'>{_pname}</div><div style='font-size:0.74rem; color:#64748b;'>{_pos} • {_nfl_team}</div></td><td style='padding: 8px 12px; text-align:center;'>{_rank_html}</td><td style='padding: 8px 12px; text-align:right; font-weight:800; font-size:0.88rem; color:#7c3aed;'>{_tv:.1f}</td><td style='padding: 8px 12px; text-align:right; font-weight:700; font-size:0.9rem; color:#0f172a;'>{_mean_pts:.2f}</td><td style='padding: 8px 12px; text-align:right; font-size:0.84rem; color:#475569;'>±{_std_pts:.1f}</td><td style='padding: 8px 12px; text-align:center;'>{_tier_html}</td><td style='padding: 8px 12px; text-align:center;'>{_inj_html}</td><td style='padding: 8px 12px; text-align:center; font-size:0.82rem; color:#64748b;'>{_gp}</td></tr>"""
                         _rows.append(_row_html)
 
                     _ir_cnt = int((df_sub['slot'] == 'IR').sum()) if 'slot' in df_sub.columns else 0

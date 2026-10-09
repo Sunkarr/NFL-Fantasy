@@ -91,27 +91,79 @@ def get_team_roster_analytics(
     if team_roster.empty:
         return {}
 
-    cols_to_merge = ['player_id', 'is_starter']
-    if 'is_reserve' in team_roster.columns:
-        cols_to_merge.append('is_reserve')
-
-    merged = pd.merge(
-        team_roster[cols_to_merge],
-        df_player_stats,
-        on='player_id',
-        how='left'
-    )
-
+    merged = team_roster.copy()
     if 'is_reserve' not in merged.columns:
         merged['is_reserve'] = 0
     else:
         merged['is_reserve'] = merged['is_reserve'].fillna(0).astype(int)
 
+    if 'is_starter' not in merged.columns:
+        merged['is_starter'] = 0
+    else:
+        merged['is_starter'] = merged['is_starter'].fillna(0).astype(int)
+
+    if df_player_stats is not None and not df_player_stats.empty:
+        stats_cols = [
+            'player_id', 'games_played', 'total_points', 'mean_points', 'std_points',
+            'median_points', 'min_points', 'max_points', 'cv', 'pos_rank',
+            'consistency_tier', 'headshot_url'
+        ] + [c for c in df_player_stats.columns if c.startswith('Week ')]
+        available_cols = [c for c in stats_cols if c in df_player_stats.columns]
+        merged = pd.merge(merged, df_player_stats[available_cols], on='player_id', how='left')
+
     # Fill defaults for un-played/un-matched players
-    merged['mean_points'] = merged['mean_points'].fillna(0.0)
-    merged['std_points'] = merged['std_points'].fillna(0.0)
-    merged['pos_rank'] = merged['pos_rank'].fillna(99).astype(int)
-    merged['injury_status'] = merged['injury_status'].fillna('Healthy')
+    if 'player_name' not in merged.columns:
+        merged['player_name'] = merged['player_id'].astype(str)
+    else:
+        merged['player_name'] = merged['player_name'].fillna(merged['player_id'].astype(str))
+
+    if 'position' not in merged.columns:
+        merged['position'] = 'WR'
+    else:
+        merged['position'] = merged['position'].fillna('WR')
+
+    if 'nfl_team' not in merged.columns:
+        merged['nfl_team'] = ''
+    else:
+        merged['nfl_team'] = merged['nfl_team'].fillna('')
+
+    if 'mean_points' not in merged.columns:
+        merged['mean_points'] = 0.0
+    else:
+        merged['mean_points'] = merged['mean_points'].fillna(0.0)
+
+    if 'std_points' not in merged.columns:
+        merged['std_points'] = 0.0
+    else:
+        merged['std_points'] = merged['std_points'].fillna(0.0)
+
+    if 'games_played' not in merged.columns:
+        merged['games_played'] = 0
+    else:
+        merged['games_played'] = merged['games_played'].fillna(0).astype(int)
+
+    if 'pos_rank' not in merged.columns:
+        merged['pos_rank'] = 99
+    else:
+        merged['pos_rank'] = merged['pos_rank'].fillna(99).astype(int)
+
+    if 'consistency_tier' not in merged.columns:
+        merged['consistency_tier'] = '—'
+    else:
+        merged['consistency_tier'] = merged['consistency_tier'].fillna('—')
+
+    if 'injury_status' not in merged.columns:
+        merged['injury_status'] = 'Healthy'
+    else:
+        merged['injury_status'] = merged['injury_status'].fillna('Healthy')
+
+    if 'headshot_url' not in merged.columns or merged['headshot_url'].isna().any():
+        merged['headshot_url'] = merged.apply(
+            lambda r: f"https://sleepercdn.com/images/team_logos/nfl/{str(r.get('nfl_team', '')).lower()}.png"
+            if r.get('position') == 'DEF' or str(r.get('player_id')) == str(r.get('nfl_team'))
+            else f"https://sleepercdn.com/content/nfl/players/{r.get('player_id')}.jpg",
+            axis=1
+        )
 
     # Calculate or map player trade values (0-100 scale)
     if val_df is None and df_rosters is not None and not df_rosters.empty and df_player_stats is not None and not df_player_stats.empty:

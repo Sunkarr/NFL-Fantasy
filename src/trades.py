@@ -50,6 +50,16 @@ def calculate_player_trade_values(
     else:
         df["mean_points"] = df["mean_points"].fillna(0.0)
 
+    if "std_points" not in df.columns:
+        df["std_points"] = 0.0
+    else:
+        df["std_points"] = df["std_points"].fillna(0.0)
+
+    if "games_played" not in df.columns:
+        df["games_played"] = 0
+    else:
+        df["games_played"] = df["games_played"].fillna(0).astype(int)
+
     if "pos_rank" not in df.columns:
         df["pos_rank"] = 99
     else:
@@ -100,8 +110,9 @@ def calculate_player_trade_values(
     trade_values = []
     for _, row in df.iterrows():
         pos = str(row.get("position", "WR")).upper()
-        pts = float(row.get("score", 0.0))
-        rk = int(row.get("pos_rank", 99))
+        pts = float(row.get("score", 0.0)) if pd.notna(row.get("score")) else 0.0
+        rk_val = row.get("pos_rank", 99)
+        rk = int(rk_val) if pd.notna(rk_val) else 99
         inj = str(row.get("injury_status", "Healthy"))
 
         baseline = replacement_baselines.get(pos, 8.0)
@@ -153,7 +164,7 @@ def calculate_player_trade_values(
     if "score" in df.columns and "position" in df.columns:
         df["pos_percentile"] = (
             df.groupby("position")["score"].rank(pct=True, ascending=True) * 100.0
-        ).round(0).astype(int)
+        ).round(0).fillna(50).astype(int)
     else:
         df["pos_percentile"] = 50
 
@@ -1106,11 +1117,16 @@ def render_trade_finder_view(
                 img = p.get("headshot_url", "")
                 p_name = p.get("player_name", "Unknown")
                 pos = p.get("position", "")
-                tv = float(p.get("trade_value", 0.0))
-                score = float(p.get("score", 0.0))
-                gp = int(p.get("games_played", 0))
-                pos_rank = p.get("pos_rank", 99)
-                pct = int(round(float(p.get("pos_percentile", 50))))
+                tv_val = p.get("trade_value", 0.0)
+                tv = float(tv_val) if pd.notna(tv_val) else 0.0
+                score_val = p.get("score", 0.0)
+                score = float(score_val) if pd.notna(score_val) else 0.0
+                gp_val = p.get("games_played", 0)
+                gp = int(gp_val) if pd.notna(gp_val) else 0
+                pos_rank_val = p.get("pos_rank", 99)
+                pos_rank = int(pos_rank_val) if pd.notna(pos_rank_val) else 99
+                pct_val = p.get("pos_percentile", 50)
+                pct = int(round(float(pct_val))) if pd.notna(pct_val) else 50
                 inj = str(p.get("injury_status", "Healthy")).strip()
 
                 if inj == "Healthy":
@@ -1391,11 +1407,15 @@ def render_player_market_view(
     def _render_radar_items(cands, is_buy=True):
         items = []
         for _, r in cands.head(3).iterrows():
-            pos = r["position"]
-            score = float(r["score"])
-            tv = float(r["trade_value"])
-            sd = float(r.get("std_points", 0.0))
-            gp = int(r.get("games_played", 0))
+            pos = r.get("position", "WR")
+            score_val = r.get("score", 0.0)
+            score = float(score_val) if pd.notna(score_val) else 0.0
+            tv_val = r.get("trade_value", 0.0)
+            tv = float(tv_val) if pd.notna(tv_val) else 0.0
+            sd_val = r.get("std_points", 0.0)
+            sd = float(sd_val) if pd.notna(sd_val) else 0.0
+            gp_val = r.get("games_played", 0)
+            gp = int(gp_val) if pd.notna(gp_val) else 0
             inj = str(r.get("injury_status", "Healthy"))
 
             if is_buy:
@@ -1489,12 +1509,18 @@ def render_player_market_view(
         o_color = owner_colors.get(t_name, "#94a3b8")
         owner_badge = f"<span style='display:inline-flex; align-items:center; gap:4px; font-weight:600; font-size:0.78rem; color:#0f172a;'><span style='width:8px; height:8px; border-radius:50%; background:{o_color};'></span>{t_name}</span>"
         
-        score = float(r.get("score", 0.0))
-        gp = int(r.get("games_played", 0))
+        score_val = r.get("score", 0.0)
+        score = float(score_val) if pd.notna(score_val) else 0.0
+        gp_val = r.get("games_played", 0)
+        gp = int(gp_val) if pd.notna(gp_val) else 0
         gp_badge = f"<span style='background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:4px; padding:1px 5px; font-size:0.68rem; font-weight:700;'>⚠️ {gp} GP</span>" if gp <= 1 else f"<span style='color:#64748b; font-size:0.78rem;'>{gp} GP</span>"
         
-        tv = float(r.get("trade_value", 0.0))
-        pct = int(r.get("pos_percentile", 50))
+        tv_val = r.get("trade_value", 0.0)
+        tv = float(tv_val) if pd.notna(tv_val) else 0.0
+        pct_val = r.get("pos_percentile", 50)
+        pct = int(round(float(pct_val))) if pd.notna(pct_val) else 50
+        sd_val = r.get("std_points", 0.0)
+        sd = float(sd_val) if pd.notna(sd_val) else 0.0
         inj = str(r.get("injury_status", "Healthy")).strip()
         if inj == "Healthy":
             inj_html = "<span style='color:#16a34a; font-weight:600; font-size:0.76rem;'>Active</span>"
@@ -1521,7 +1547,7 @@ def render_player_market_view(
             </td>
             <td style="padding:8px 12px; text-align:right; font-weight:700; color:#0f172a; width:90px;">{score:.2f}</td>
             <td style="padding:8px 10px; text-align:center; width:75px;">{gp_badge}</td>
-            <td style="padding:8px 10px; text-align:center; width:80px; font-size:0.80rem; color:#64748b;">±{float(r.get('std_points', 0.0)):.1f}</td>
+            <td style="padding:8px 10px; text-align:center; width:80px; font-size:0.80rem; color:#64748b;">±{sd:.1f}</td>
             <td style="padding:8px 12px; text-align:center; width:100px;">{inj_html}</td>
         </tr>
         """
