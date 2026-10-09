@@ -17,11 +17,33 @@ def init_db(db_path: Path = DB_PATH):
     cur = conn.cursor()
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS players (\n            player_id TEXT PRIMARY KEY,\n            full_name TEXT,\n            position TEXT,\n            nfl_team TEXT,\n            status TEXT,\n            injury_status TEXT,\n            age INTEGER,\n            years_exp INTEGER,\n            updated_at TIMESTAMP\n        )
+        CREATE TABLE IF NOT EXISTS players (
+            player_id TEXT PRIMARY KEY,
+            full_name TEXT,
+            position TEXT,
+            nfl_team TEXT,
+            status TEXT,
+            injury_status TEXT,
+            age INTEGER,
+            years_exp INTEGER,
+            updated_at TIMESTAMP
+        )
     ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS teams (\n            roster_id INTEGER,\n            league_id TEXT,\n            owner_id TEXT,\n            team_name TEXT,\n            owner_name TEXT,\n            wins INTEGER,\n            losses INTEGER,\n            fpts REAL,\n            fpts_against REAL DEFAULT 0.0,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (roster_id, league_id)\n        )
+        CREATE TABLE IF NOT EXISTS teams (
+            roster_id INTEGER,
+            league_id TEXT,
+            owner_id TEXT,
+            team_name TEXT,
+            owner_name TEXT,
+            wins INTEGER,
+            losses INTEGER,
+            fpts REAL,
+            fpts_against REAL DEFAULT 0.0,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (roster_id, league_id)
+        )
     ''')
 
     # Ensure fpts_against exists if table was previously created
@@ -31,7 +53,15 @@ def init_db(db_path: Path = DB_PATH):
         cur.execute("ALTER TABLE teams ADD COLUMN fpts_against REAL DEFAULT 0.0;")
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS current_rosters (\n            league_id TEXT,\n            roster_id INTEGER,\n            player_id TEXT,\n            is_starter INTEGER,\n            is_reserve INTEGER DEFAULT 0,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, roster_id, player_id)\n        )
+        CREATE TABLE IF NOT EXISTS current_rosters (
+            league_id TEXT,
+            roster_id INTEGER,
+            player_id TEXT,
+            is_starter INTEGER,
+            is_reserve INTEGER DEFAULT 0,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (league_id, roster_id, player_id)
+        )
     ''')
 
     # Ensure is_reserve exists if table was previously created
@@ -41,19 +71,75 @@ def init_db(db_path: Path = DB_PATH):
         cur.execute("ALTER TABLE current_rosters ADD COLUMN is_reserve INTEGER DEFAULT 0;")
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_matchup_points (\n            league_id TEXT,\n            season TEXT,\n            week INTEGER,\n            roster_id INTEGER,\n            player_id TEXT,\n            points REAL,\n            started INTEGER,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, season, week, roster_id, player_id)\n        )
+        CREATE TABLE IF NOT EXISTS weekly_matchup_points (
+            league_id TEXT,
+            season TEXT,
+            week INTEGER,
+            roster_id INTEGER,
+            player_id TEXT,
+            points REAL,
+            started INTEGER,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (league_id, season, week, roster_id, player_id)
+        )
     ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_team_matchups (\n            league_id TEXT,\n            season TEXT,\n            week INTEGER,\n            roster_id INTEGER,\n            matchup_id INTEGER,\n            points REAL,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (league_id, season, week, roster_id)\n        )
+        CREATE TABLE IF NOT EXISTS weekly_team_matchups (
+            league_id TEXT,
+            season TEXT,
+            week INTEGER,
+            roster_id INTEGER,
+            matchup_id INTEGER,
+            points REAL,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (league_id, season, week, roster_id)
+        )
     ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_nfl_stats (\n            season TEXT,\n            week INTEGER,\n            player_id TEXT,\n            points REAL,\n            pass_yd REAL,\n            pass_td REAL,\n            pass_int REAL,\n            rush_yd REAL,\n            rush_td REAL,\n            rec REAL,\n            rec_yd REAL,\n            rec_td REAL,\n            updated_at TIMESTAMP,\n            PRIMARY KEY (season, week, player_id)\n        )
+        CREATE TABLE IF NOT EXISTS weekly_nfl_stats (
+            season TEXT,
+            week INTEGER,
+            player_id TEXT,
+            points REAL,
+            pass_yd REAL,
+            pass_td REAL,
+            pass_int REAL,
+            rush_yd REAL,
+            rush_td REAL,
+            rec REAL,
+            rec_yd REAL,
+            rec_td REAL,
+            updated_at TIMESTAMP,
+            PRIMARY KEY (season, week, player_id)
+        )
     ''')
 
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS sync_metadata (\n            key TEXT PRIMARY KEY,\n            value TEXT\n        )
+        CREATE TABLE IF NOT EXISTS roster_moves (
+            transaction_id TEXT PRIMARY KEY,
+            league_id TEXT,
+            season TEXT,
+            round INTEGER,
+            is_preseason INTEGER DEFAULT 0,
+            created_at INTEGER,
+            created_iso TEXT,
+            type TEXT,
+            status TEXT,
+            roster_ids TEXT,
+            adds TEXT,
+            drops TEXT,
+            waiver_bid INTEGER DEFAULT 0,
+            updated_at TIMESTAMP
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS sync_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
     ''')
 
     conn.commit()
@@ -266,6 +352,35 @@ def load_team_matchups(
             WHERE m.league_id = ? AND m.season = ? AND m.started = 1
             GROUP BY m.season, m.week, m.roster_id, t.team_name, t.owner_name
             ORDER BY m.week, points DESC
+        ''', conn, params=(league_id, season))
+        conn.close()
+        return df
+    except Exception:
+        conn.close()
+        return pd.DataFrame()
+
+
+def load_roster_moves(
+    db_path: Path = DB_PATH,
+    league_id: str = DEFAULT_LEAGUE_ID,
+    season: Optional[str] = None
+) -> pd.DataFrame:
+    """Load completed roster moves/transactions from SQLite."""
+    if not db_path.exists():
+        return pd.DataFrame()
+
+    conn = get_connection(db_path)
+    if season is None:
+        season = get_active_season(db_path, league_id)
+
+    try:
+        df = pd.read_sql_query('''
+            SELECT transaction_id, league_id, season, round, is_preseason,
+                   created_at, created_iso, type, status, roster_ids,
+                   adds, drops, waiver_bid, updated_at
+            FROM roster_moves
+            WHERE league_id = ? AND season = ? AND status = 'complete'
+            ORDER BY created_at DESC
         ''', conn, params=(league_id, season))
         conn.close()
         return df

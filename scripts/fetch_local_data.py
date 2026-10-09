@@ -204,6 +204,21 @@ EXAMPLE_QUERIES = [
         ORDER BY t.team_name, p.position;
         """
     ),
+    (
+        "Latest Completed Roster Moves (Waivers, Trades, Pickups)",
+        """
+        SELECT 
+            CASE WHEN is_preseason = 1 THEN 'Pre-Season' ELSE 'Week ' || round END AS timing,
+            type,
+            waiver_bid AS bid,
+            adds,
+            drops,
+            created_iso
+        FROM roster_moves
+        ORDER BY created_at DESC
+        LIMIT 10;
+        """
+    ),
 ]
 
 
@@ -226,7 +241,7 @@ def interactive_sql_shell():
     print("\n" + "=" * 60)
     print("💻 Interactive SQL Shell (data/fantasy.db)")
     print("   Type your SQL queries below (end with ';' or press Enter).")
-    print("   Commands: '.tables', '.schema [table]', '.example [1-5]', 'exit'")
+    print("   Commands: '.tables', '.schema [table]', '.example [1-6]', 'exit'")
     print("=" * 60 + "\n")
 
     conn = get_connection(DB_PATH)
@@ -271,7 +286,7 @@ def interactive_sql_shell():
                     if 0 <= idx < len(EXAMPLE_QUERIES):
                         run_sql_query(EXAMPLE_QUERIES[idx][1])
                         continue
-                print("Usage: .example 1  (choose 1 to 5)")
+                print(f"Usage: .example 1  (choose 1 to {len(EXAMPLE_QUERIES)})")
                 continue
 
             # Execute custom query
@@ -310,7 +325,7 @@ def main():
         "-q", "--query", type=str, help="Execute a custom SQL query and print formatted results"
     )
     parser.add_argument(
-        "--example", type=int, choices=range(1, len(EXAMPLE_QUERIES) + 1), help="Run one of the pre-built example queries (1-5)"
+        "--example", type=int, choices=range(1, len(EXAMPLE_QUERIES) + 1), help=f"Run one of the pre-built example queries (1-{len(EXAMPLE_QUERIES)})"
     )
     parser.add_argument(
         "--examples", action="store_true", help="List all pre-built example SQL queries"

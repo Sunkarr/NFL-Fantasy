@@ -23,6 +23,7 @@ def _():
         get_team_roster_analytics,
         get_luck_and_all_play_analytics
     )
+    from src.moves import get_roster_move_analytics, render_roster_moves_html
     from src.sync import start_background_scheduler
     from src.visual import build_interactive_position_chart, get_owner_color_map
     from src.trades import (
@@ -107,6 +108,8 @@ def _():
         render_player_market_view,
         render_trade_finder_view,
         simulate_custom_trade,
+        get_roster_move_analytics,
+        render_roster_moves_html,
     )
 
 
@@ -128,6 +131,7 @@ def _(mo):
         "🛡️ Team Analytics": mo.md(""),
         "⚡ Team Optimizer": mo.md(""),
         "🍀 Luck & All-Play": mo.md(""),
+        "📜 Roster Moves": mo.md(""),
         "🤝 Trade Finder": mo.md(""),
         "💎 Player Market": mo.md(""),
         "📊 Position Scatter": mo.md("")
@@ -363,6 +367,34 @@ def _(mo, unique_teams):
 
 
 @app.cell
+def _(mo, unique_teams):
+    # Persistent Controls for Roster Moves Revisitor / Grader
+    _t_names = unique_teams if unique_teams else []
+    moves_team_dropdown = mo.ui.dropdown(
+        options=["All Teams"] + _t_names,
+        value="All Teams",
+        label="Team:"
+    )
+    moves_type_dropdown = mo.ui.dropdown(
+        options=["All Types", "Add & Drop", "Free Add / IR Fill", "Pure Drop", "Trades"],
+        value="All Types",
+        label="Move Type:"
+    )
+    moves_sort_dropdown = mo.ui.dropdown(
+        options={
+            "🕒 Newest First": "newest",
+            "🌟 Best Move (Net PPG)": "best",
+            "💔 Worst Move (Net PPG)": "worst",
+            "💎 Trade Value Delta": "net_tv",
+            "📊 Cumulative Net FPTS": "net_total"
+        },
+        value="🕒 Newest First",
+        label="Sort By:"
+    )
+    return moves_sort_dropdown, moves_team_dropdown, moves_type_dropdown
+
+
+@app.cell
 def _(
     limit_slider,
     market_pos_dropdown,
@@ -370,6 +402,9 @@ def _(
     market_team_dropdown,
     min_pts_slider,
     mo,
+    moves_sort_dropdown,
+    moves_team_dropdown,
+    moves_type_dropdown,
     nav_tabs,
     opt_injury_switch,
     opt_mode_switch,
@@ -387,6 +422,8 @@ def _(
         _filter_bar = mo.hstack([trade_focus_dropdown], justify="start", align="center", gap=2)
     elif nav_tabs.value == "💎 Player Market":
         _filter_bar = mo.hstack([market_pos_dropdown, market_team_dropdown, market_search_input], justify="start", align="center", gap=2)
+    elif nav_tabs.value == "📜 Roster Moves":
+        _filter_bar = mo.hstack([moves_team_dropdown, moves_type_dropdown, moves_sort_dropdown], justify="start", align="center", gap=2)
     elif nav_tabs.value == "⚡ Team Optimizer":
         _divider1 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
         _divider2 = mo.md("<span style='color:#cbd5e1; font-size:1.1rem; margin:0 4px;'>|</span>")
@@ -418,6 +455,11 @@ def _(
     DEFAULT_LEAGUE_ID,
     VERSION,
     analyze_team_needs_and_surplus,
+    get_roster_move_analytics,
+    render_roster_moves_html,
+    moves_sort_dropdown,
+    moves_team_dropdown,
+    moves_type_dropdown,
     build_interactive_position_chart,
     df_current_rosters,
     df_matchups,
@@ -844,6 +886,17 @@ def _(
                 _methodology_box,
                 _fixed_corner_badge
             ], gap=1)
+
+    elif nav_tabs.value == "📜 Roster Moves":
+        _moves_data = get_roster_move_analytics(
+            db_path=DB_PATH,
+            league_id=DEFAULT_LEAGUE_ID,
+            team_filter=moves_team_dropdown.value if moves_team_dropdown is not None else None,
+            type_filter=moves_type_dropdown.value if moves_type_dropdown is not None else None,
+            sort_by=moves_sort_dropdown.value if moves_sort_dropdown is not None else "newest"
+        )
+        _moves_html = render_roster_moves_html(_moves_data, owner_colors=owner_colors)
+        _view = mo.vstack([mo.Html(_moves_html), _fixed_corner_badge], gap=1)
 
     else:
         # League Overview Page

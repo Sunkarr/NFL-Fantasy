@@ -5,7 +5,7 @@ import argparse
 import threading
 import time
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 import requests
 from src.config import DB_PATH, PLAYERS_CACHE_FILE, DEFAULT_LEAGUE_ID
 from src.db import init_db, get_connection, set_sync_metadata
@@ -305,13 +305,93 @@ def sync_weekly_data(
     return len(matchup_rows), len(stats_rows)
 
 
+def sync_transactions(
+    league_id: str = DEFAULT_LEAGUE_ID,
+    season: Optional[str] = None,
+    max_week: int = 18,
+    db_path: Path = DB_PATH
+) -> int:
+    """
+    Sync completed league transactions (waivers, free agent pickups, trades) into SQLite.
+    Draft picks are excluded. Pre-season roster moves are tagged with is_preseason=1.
+    """
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    now_iso = datetime.datetime.now().isoformat()
+
+    all_rows = []
+    rounds_to_check = range(1, min(max_week + 2, 19))
+
+    for r in rounds_to_check:
+        try:
+            res = requests.get(f"https://api.sleeper.app/v1/league/{league_id}/transactions/{r}", timeout=10)
+            if res.status_code != 200:
+                continue
+            txs = res.json()
+            if not txs:
+                continue
+
+            for t in txs:
+                if t.get("status") != "complete":
+                    continue
+
+                tid = str(t.get("transaction_id"))
+                tx_type = str(t.get("type", "unknown"))
+                created_ms = t.get("created") or 0
+                created_dt = datetime.datetime.fromtimestamp(created_ms / 1000.0) if created_ms else datetime.datetime.now()
+                created_iso = created_dt.isoformat()
+
+                # Determine if pre-season move (round 1 before Sept 9th)
+                is_preseason = 1 if (r == 1 and (created_dt.month < 9 or (created_dt.month == 9 and created_dt.day < 9))) else 0
+
+                roster_ids = json.dumps(t.get("roster_ids") or [])
+                adds = json.dumps(t.get("adds") or {})
+                drops = json.dumps(t.get("drops") or {})
+
+                waiver_bid = 0
+                settings = t.get("settings") or {}
+                if isinstance(settings, dict) and "waiver_bid" in settings:
+                    waiver_bid = int(settings.get("waiver_bid") or 0)
+
+                all_rows.append((
+                    tid,
+                    league_id,
+                    str(season or created_dt.year),
+                    r,
+                    is_preseason,
+                    int(created_ms),
+                    created_iso,
+                    tx_type,
+                    "complete",
+                    roster_ids,
+                    adds,
+                    drops,
+                    waiver_bid,
+                    now_iso
+                ))
+        except Exception as e:
+            print(f"Error fetching transactions for round {r}: {e}")
+
+    if all_rows:
+        cur.executemany('''
+            INSERT OR REPLACE INTO roster_moves
+            (transaction_id, league_id, season, round, is_preseason, created_at, created_iso, type, status, roster_ids, adds, drops, waiver_bid, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', all_rows)
+        conn.commit()
+
+    conn.close()
+    return len(all_rows)
+
+
 def run_full_sync(
     league_id: str = DEFAULT_LEAGUE_ID,
     mode: str = "incremental",
     force_players: bool = False,
     db_path: Path = DB_PATH
 ) -> None:
-    """Orchestrate players, league, and weekly stats data download."""
+    """Orchestrate players, league, weekly stats, and transactions download."""
     with _sync_in_progress:
         print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting sync (mode={mode})...")
         p_count = sync_players(db_path=db_path, force_refresh=force_players)
@@ -328,6 +408,18 @@ def run_full_sync(
             db_path=db_path
         )
         print(f"Synced {m_count} matchup scores and {s_count} NFL player stats entries.")
+
+        # Sync completed roster moves / transactions
+        try:
+            t_count = sync_transactions(
+                league_id=league_id,
+                season=season,
+                max_week=current_week,
+                db_path=db_path
+            )
+            print(f"Synced {t_count} completed transactions.")
+        except Exception as te:
+            print(f"[Transactions Sync Note]: {te}")
 
         # Proactively refresh current week projections with latest Sleeper estimates
         try:
@@ -348,7 +440,6 @@ def _scheduler_worker(league_id: str, db_path: Path):
     Background worker thread running on the exact hour and half-hour (:00 and :30).
     Runs indefinitely without blocking main thread.
     """
-    # Proactively check if DB needs sync on thread start (if missing, empty, or older than 30 mins, or missing weekly_team_matchups)
     try:
         from src.db import get_last_sync_time
         last_dt = get_last_sync_time(db_path)
